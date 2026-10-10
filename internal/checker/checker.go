@@ -48,11 +48,10 @@ func checkURL(ctx context.Context, url string, timeout time.Duration) Result {
 	return Result{URL: url, Status: resp.Status, Duration: duration, Err: nil, Success: false}
 }
 
-func Check(ctx context.Context, cfg *config.Config) []Result {
+func Check(ctx context.Context, urls []string, cfg *config.Config) []Result {
 	taskChan := make(chan string)
 	resultChan := make(chan Result)
 	// 对数据解包
-	urls := cfg.URLs
 	timeout := time.Duration(cfg.Timeout) * time.Second
 	concurrency := cfg.Concurrency
 

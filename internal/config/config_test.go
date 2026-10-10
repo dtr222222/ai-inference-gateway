@@ -15,10 +15,6 @@ func TestLoad(t *testing.T) {
 		t.Errorf("fail to load the env")
 	case config == nil:
 		t.Errorf("some error occurred")
-	case config.URLs[0] != "https://github.com/":
-		t.Errorf("first url get wrong")
-	case config.URLs[1] != "https://chat.deepseek.com/":
-		t.Errorf("second url get wrong")
 	case config.Timeout != 10:
 		t.Errorf("timeout seconds get wrong answer: %d", config.Timeout)
 	case config.Concurrency != 2:

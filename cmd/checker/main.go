@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"log/slog"
-	"my-checker/internal/checker"
 	"my-checker/internal/config"
+	handler2 "my-checker/internal/handler"
+	"net/http"
 	"os"
 	"os/signal"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
@@ -25,6 +29,7 @@ func main() {
 		return
 	}
 
+	// 初始化 slog
 	jsonHandler := slog.NewJSONHandler(os.Stdout, nil)
 	logger := slog.New(jsonHandler)
 	slog.SetDefault(logger)
@@ -33,17 +38,33 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	results := checker.Check(ctx, cfg)
-	cntSuccess, cntFail := 0, 0
-	for _, result := range results {
-		if result.Success {
-			cntSuccess++
-		} else {
-			cntFail++
-		}
-		slog.Info("summary", "url", result.URL,
-			"status", result.Status, "duration", result.Duration,
-			"error", result.Err, "success", result.Success)
+	router := gin.Default()
+	handler := &handler2.Handler{Cfg: cfg}
+
+	router.POST("/api/v1/check", handler.CheckHandler)
+
+	// graceful shutdown
+	srv := &http.Server{
+		Addr:              ":8080",
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
-	slog.Info("检查汇总", "total", cntFail+cntSuccess, "success", cntSuccess, "fail", cntFail)
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+
+	<-ctx.Done()
+
+	stop()
+	log.Println("shutting down gracefully, press Ctrl+C again to force")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err = srv.Shutdown(shutdownCtx); err != nil {
+		log.Println("Server forced to shutdown: ", err)
+	}
+	log.Println("Server exiting")
 }
