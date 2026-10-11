@@ -16,11 +16,17 @@ type CheckRequest struct {
 type Handler struct{ Cfg *config.Config }
 
 func (h *Handler) CheckHandler(c *gin.Context) {
+	// 获取数据
+
 	req := CheckRequest{}
+	// ShouldBindWith 的作用是将用户传上来的 json 数据解析并绑定到 req 中
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 处理数据
+
 	// 获取上下文
 	// 来源： Go 标准库和 Gin 框架在底层传好了
 	ctx := c.Request.Context()

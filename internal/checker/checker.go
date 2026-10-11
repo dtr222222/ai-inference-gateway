@@ -12,7 +12,7 @@ import (
 type Result struct {
 	URL      string
 	Status   string
-	Duration time.Duration
+	Duration string
 	Err      error
 	Success  bool
 }
@@ -35,17 +35,17 @@ func checkURL(ctx context.Context, url string, timeout time.Duration) Result {
 	resp, err := http.DefaultClient.Do(req)
 	duration := time.Since(start)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return Result{URL: url, Status: "timeout", Duration: duration, Err: err, Success: false}
+		return Result{URL: url, Status: "timeout", Duration: duration.String(), Err: err, Success: false}
 	} else if err != nil {
-		return Result{URL: url, Status: "error", Duration: duration, Err: err, Success: false}
+		return Result{URL: url, Status: "error", Duration: duration.String(), Err: err, Success: false}
 	}
 	defer resp.Body.Close()
 
 	statusCode := resp.StatusCode
 	if statusCode >= 200 && statusCode < 300 {
-		return Result{URL: url, Status: resp.Status, Duration: duration, Err: nil, Success: true}
+		return Result{URL: url, Status: resp.Status, Duration: duration.String(), Err: nil, Success: true}
 	}
-	return Result{URL: url, Status: resp.Status, Duration: duration, Err: nil, Success: false}
+	return Result{URL: url, Status: resp.Status, Duration: duration.String(), Err: nil, Success: false}
 }
 
 func Check(ctx context.Context, urls []string, cfg *config.Config) []Result {

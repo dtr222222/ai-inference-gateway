@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"my-checker/internal/config"
 	handler2 "my-checker/internal/handler"
+	"my-checker/internal/middleware"
 	"net/http"
 	"os"
 	"os/signal"
@@ -38,9 +39,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	router := gin.Default()
+	// gin 框架
+	router := gin.New()
+	// 设置成发布模式，减少调试信息输出
+	gin.SetMode(gin.ReleaseMode)
+	// 加入中间件
+	router.Use(middleware.SlogMiddleware())
 	handler := &handler2.Handler{Cfg: cfg}
-
 	router.POST("/api/v1/check", handler.CheckHandler)
 
 	// graceful shutdown
