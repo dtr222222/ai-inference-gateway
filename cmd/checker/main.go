@@ -45,6 +45,7 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	// 加入中间件
 	router.Use(middleware.SlogMiddleware())
+	router.Use(middleware.RecoveryMiddleware())
 	handler := &handler2.Handler{Cfg: cfg}
 	router.POST("/api/v1/check", handler.CheckHandler)
 
