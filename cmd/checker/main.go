@@ -6,8 +6,9 @@ import (
 	"log"
 	"log/slog"
 	"my-checker/internal/config"
-	handler2 "my-checker/internal/handler"
+	h "my-checker/internal/handler"
 	"my-checker/internal/middleware"
+	"my-checker/internal/repository"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,36 +19,53 @@ import (
 )
 
 func main() {
+	// 初始化 slog
+	// 同时要注意应该先初始化 slog, 不然后面的 slog 的格式会有差异
+	jsonHandler := slog.NewJSONHandler(os.Stdout, nil)
+	logger := slog.New(jsonHandler)
+	slog.SetDefault(logger)
+	slog.Info("slog 配置加载成功")
+
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("环境变量导入失败", "error", err)
 		return
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("环境变量加载失败", "error", err)
 		return
 	}
 
-	// 初始化 slog
-	jsonHandler := slog.NewJSONHandler(os.Stdout, nil)
-	logger := slog.New(jsonHandler)
-	slog.SetDefault(logger)
-	slog.Info("配置加载成功")
+	// 初始化数据库
+	dsn := os.Getenv("DB_DSN")
+	db, err := repository.InitDB(dsn)
+	if err != nil {
+		slog.Error("初始化数据库失败", "error", err)
+		os.Exit(1)
+	}
+
+	// 实例化仓库
+	repo := repository.NewCheckRepository(db)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	// gin 框架
-	router := gin.New()
 	// 设置成发布模式，减少调试信息输出
 	gin.SetMode(gin.ReleaseMode)
+	// gin 框架
+	router := gin.New()
 	// 加入中间件
 	router.Use(middleware.SlogMiddleware())
 	router.Use(middleware.RecoveryMiddleware())
-	handler := &handler2.Handler{Cfg: cfg}
-	router.POST("/api/v1/check", handler.CheckHandler)
+	handler := &h.Handler{Cfg: cfg, CheckRepo: repo}
+
+	{
+		v1 := router.Group("/api/v1")
+		v1.POST("/check", handler.CheckHandler)
+		v1.GET("/results", handler.GetResultsHandler)
+	}
 
 	// graceful shutdown
 	srv := &http.Server{
@@ -64,13 +82,12 @@ func main() {
 
 	<-ctx.Done()
 
-	stop()
-	log.Println("shutting down gracefully, press Ctrl+C again to force")
+	slog.Info("shutting down gracefully, press Ctrl+C again to force")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err = srv.Shutdown(shutdownCtx); err != nil {
-		log.Println("Server forced to shutdown: ", err)
+		slog.Info("Server forced to shutdown: ", "error", err)
 	}
-	log.Println("Server exiting")
+	slog.Info("Server exiting")
 }
