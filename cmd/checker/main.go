@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
 	"log/slog"
 	"my-checker/internal/config"
 	h "my-checker/internal/handler"
@@ -39,8 +38,7 @@ func main() {
 	}
 
 	// 初始化数据库
-	dsn := os.Getenv("DB_DSN")
-	db, err := repository.InitDB(dsn)
+	db, err := repository.InitDB(cfg.DSN)
 	if err != nil {
 		slog.Error("初始化数据库失败", "error", err)
 		os.Exit(1)
@@ -76,7 +74,7 @@ func main() {
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("listen: %s\n", err)
+			slog.Error("listen: %s\n", "error", err)
 		}
 	}()
 

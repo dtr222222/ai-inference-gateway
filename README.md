@@ -1,32 +1,43 @@
-# AI-Probe
+# ai-probe
 
-一个基于 Go 并发的高性能 URL 健康检查器。支持并发探测、超时控制、优雅退出以及结构化 JSON 日志输出。
+一个基于 Go + Gin + GORM 的高并发服务健康探测组件。支持并发探测 URL 可用性、结构化日志、崩溃兜底、优雅退出、数据持久化与分页查询。
 
 ## ✨ 功能特性
 
-- **并发检查**: 使用 Worker Pool 模式，支持自定义并发数，快速探测大量 URL。
-- **超时控制**: 基于 `context.WithTimeout` 实现单次请求的精准超时，防止慢请求阻塞 Worker。
-- **优雅退出**: 使用 `signal.NotifyContext` 监听系统信号（如 `Ctrl+C`），确保程序被中断时能安全释放资源。
-- **结构化日志**: 集成 Go 标准库 `log/slog`，输出 JSON 格式日志，便于接入 ELK 或 Grafana 等监控系统。
-- **配置管理**: 基于 `godotenv` 读取环境变量，实现配置与代码解耦，杜绝硬编码。
+- **并发探测**：基于 Worker Pool 模式，支持自定义并发数，快速探测大量 URL。
+- **超时控制**：基于 `context.WithTimeout` 实现单次请求精准超时，并支持级联取消。
+- **优雅退出**：使用 `signal.NotifyContext` 监听系统信号，配合 `srv.Shutdown` 实现平滑关闭。
+- **结构化日志**：集成 `log/slog`，输出 JSON 格式访问日志，便于接入 ELK / Loki。
+- **崩溃兜底**：自定义 Recovery 中间件，捕获 panic，返回 500 并记录堆栈，服务不崩。
+- **数据持久化**：使用 GORM + MySQL 保存每次检查结果，支持分页查询历史记录。
+- **连接池配置**：合理配置 `MaxOpenConns`、`MaxIdleConns`、`ConnMaxLifetime`，提升数据库性能。
+- **参数安全**：分页参数做上下限校验，防止恶意大 `pageSize` 打垮数据库。
 
 ## 📁 项目结构
-
-本项目遵循 Go 社区标准布局规范（golang-standards/project-layout）：
 
 ```text
 .
 ├── cmd/
 │   └── checker/
-│       └── main.go          # 程序入口：初始化日志、加载配置、调用核心逻辑
+│       └── main.go               # 程序入口：组装配置、DB、路由、优雅退出
 ├── internal/
+│   ├── checker/
+│   │   ├── checker.go            # 并发探测核心逻辑（Worker Pool + Context）
+│   │   └── checker_test.go       # 核心逻辑单元测试（httptest）
 │   ├── config/
-│   │   ├── config.go        # 配置解析：将环境变量映射为 Config 结构体
-│   │   └── config_test.go   # 配置模块的单元测试
-│   └── checker/
-│       ├── checker.go       # 核心逻辑：基于 Worker Pool 的并发 HTTP 探测
-│       └── checker_test.go  # 核心逻辑的单元测试（基于 httptest 假服务器）
-├── .env.example             # 环境变量模板
+│   │   ├── config.go             # 环境变量解析为 Config 结构体
+│   │   └── config_test.go        # 配置模块单元测试
+│   ├── handler/
+│   │   └── check.go              # HTTP 处理器：CheckHandler、GetResultsHandler
+│   ├── middleware/
+│   │   ├── logger.go             # SlogMiddleware：结构化访问日志
+│   │   └── recovery.go           # RecoveryMiddleware：panic 兜底
+│   ├── model/
+│   │   └── check_result.go       # GORM 数据模型
+│   └── repository/
+│       ├── db.go                 # InitDB：连接 MySQL、AutoMigrate、连接池
+│       └── check_repo.go         # CheckRepository：SaveResults、GetResults
+├── .env.example                  # 环境变量模板
 ├── go.mod
 └── README.md
 ```
@@ -36,55 +47,119 @@
 ### 前置要求
 
 - Go 1.21+
+- MySQL 8.0（推荐使用 Docker 启动）
+- Docker Desktop（用于运行 MySQL 容器）
 
-### 安装与运行
+### 1. 启动 MySQL（Docker）
 
-1. 克隆项目
+```bash
+docker run --name ai-probe-mysql \
+  -e MYSQL_ROOT_PASSWORD=123456 \
+  -e MYSQL_DATABASE=ai_probe \
+  -p 3306:3306 \
+  -d mysql:8.0
+```
 
-   ```bash
-   git clone https://github.com/username/ai-probe.git
-   cd ai-probe
-   ```
+### 2. 克隆项目并配置环境变量
 
-2. 配置环境变量
+```bash
+git clone https://github.com/your-username/ai-probe.git
+cd ai-probe
+cp .env.example .env
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+编辑 `.env`，填入你的配置（参考 `.env.example`）：
 
-   编辑 `.env` 文件，填入你要检查的 URL 列表、超时时间（秒）以及并发数。参考模板：
+```env
+TARGET_URLS=https://www.docker.com/,https://github.com/
+TIMEOUT_SECONDS=10
+CONCURRENCY=2
+DB_DSN=root:123456@tcp(127.0.0.1:3306)/ai_probe?charset=utf8mb4&parseTime=True&loc=Local
+```
 
-   ```env
-   TARGET_URLS=https://www.docker.com/,https://github.com/
-   TIMEOUT_SECONDS=10
-   CONCURRENCY=2
-   ```
+### 3. 运行服务
 
-3. 运行程序
+```bash
+go run ./cmd/checker/main.go
+```
 
-   ```bash
-   go run ./cmd/checker/main.go
-   ```
+服务默认监听 `:8080`。
 
 ## 🧪 测试
-
-本项目使用 `httptest` 进行核心逻辑的单元测试，不依赖真实的第三方网络环境，保证测试的稳定性。
 
 ```bash
 go test -v -race ./...
 ```
 
+## 📡 API 文档
+
+### POST /api/v1/check
+
+发起一次 URL 健康检查。
+
+**请求体**：
+
+```json
+{
+  "urls": ["https://github.com", "https://www.docker.com"]
+}
+```
+
+**响应示例**：
+
+```json
+[
+  {
+    "URL": "https://github.com",
+    "Status": "200 OK",
+    "Duration": "890.5903ms",
+    "Err": null,
+    "Success": true
+  }
+]
+```
+
+### GET /api/v1/results
+
+分页查询历史检查记录。
+
+**查询参数**：
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `page` | 1 | 页码，最小 1 |
+| `pageSize` | 20 | 每页条数，范围 1-100 |
+
+**响应示例**：
+
+```json
+[
+  {
+    "ID": 1,
+    "URL": "https://github.com",
+    "Status": "200 OK",
+    "Success": true,
+    "Duration": 890590300,
+    "ErrMsg": "",
+    "CreatedAt": "2026-10-14T14:30:00+08:00"
+  }
+]
+```
+
 ## 🛠️ 设计实现
 
-- **Worker Pool 模型**: 主协程负责投递任务（URL），多个 Worker 协程并发消费任务并发送 HTTP 请求，结果统一收敛到 `resultChan` 中进行汇总。
-- **错误分类**: 准确区分 `timeout`（context 超时）、`error`（网络错误/被 WAF 拦截）以及业务层面的非 2xx 状态码，并在 `Result` 结构体中打上 `Success` 标签。
-- **优雅退出**: 当收到 `SIGINT` 信号时，通过 `context` 级联取消所有正在进行的 HTTP 请求，并在退出前关闭所有通道。
+- **Worker Pool**：主协程投递任务，多个 worker 并发消费，结果收敛到 `resultChan`。
+- **Context 级联**：从 `c.Request.Context()` 到 `http.NewRequestWithContext` 到 GORM `WithContext`，实现全链路取消。
+- **中间件洋葱模型**：`SlogMiddleware` 和 `RecoveryMiddleware` 按顺序包裹业务 Handler。
+- **错误分层**：业务错误返回 400，数据库/服务端错误返回 500；对外模糊，对内详细。
+- **连接池参数**：`SetMaxOpenConns(100)`、`SetMaxIdleConns(100)`、`SetConnMaxLifetime(time.Hour)`、`SetConnMaxIdleTime(10*time.Minute)`。
 
 ## ⚠️ 已知限制与踩坑记录
 
-- **WAF 拦截问题**: 在探测某些启用了强防护的站点（如 `chat.deepseek.com`）时，Go 标准库默认的 User-Agent 和 TLS 指纹极易被识别。实测会返回 `429 Too Many Requests` 或直接断开连接。
-    - **后续优化**: 可以通过自定义 `http.Transport` 并伪装浏览器的请求头来绕过此类反爬策略。
-- **网络依赖**: 单次探测的结果受限于本地网络环境，无法完全代表目标服务在全球范围的真实可用性。
+- **WAF 拦截**：部分站点（如 `chat.deepseek.com`）会识别 Go 默认 User-Agent 和 TLS 指纹，返回 429 或直接断开。后续可通过自定义 `http.Transport` 伪装浏览器请求头绕过。
+- **分页边界**：客户端传入超大 `pageSize` 时必须强制限制（已实现上限 100）。
+- **时区与 parseTime**：DSN 必须包含 `parseTime=True&loc=Local`，否则 `time.Time` 类型读写会出错。
+- **GORM 慢 SQL 日志**：默认输出到标准输出，与 JSON 日志混在一起，后续可配置 GORM 使用 `slog` 或调高阈值。
 
 ## 📄 License
 
