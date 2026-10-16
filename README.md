@@ -173,8 +173,8 @@ go test -v -race ./...
 │                                                │
 │  ┌──────────────────┐    ┌──────────────────┐  │
 │  │ ai_probe         │───→│ mysql            │  │
-│  │ (Go 服务)        │    │ (MySQL 8.0)      │  │
-│  │ 容器内监听 :8080 │    │ 容器内监听 :3306 │  │
+│  │ (Go 服务)         │   │ (MySQL 8.0)       │  │
+│  │ 容器内监听 :8080   │   │ 容器内监听 :3306    │  │
 │  └────────┬─────────┘    └────────┬─────────┘  │
 │           │                       │            │
 │           │                       │            │
@@ -285,6 +285,7 @@ A：通常是 MySQL 还没就绪。检查：
 1. `docker compose ps` —— mysql 是不是 `healthy`？
 2. `docker compose logs mysql` —— 有没有 `ready for connections`？
 3. `healthcheck` 的 `test` 是否用了 `-h 127.0.0.1`（而不是 `localhost`）？
+
 
 ## 📄 License
 
