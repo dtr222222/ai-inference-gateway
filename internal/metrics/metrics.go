@@ -1,0 +1,42 @@
+package metrics
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+)
+
+var (
+	httpRequestsTotal   *prometheus.CounterVec   // 带标签的计数器
+	httpRequestDuration *prometheus.HistogramVec // 带标签的直方图
+)
+
+// Init 小写的 init 函数会在程序跑起来之前隐式调用
+// 这里我们选择显示调用
+func Init() {
+	httpRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "http_requests_total",
+		Help: "HTTP 请求总数"},
+		[]string{"method", "path", "status"})
+	// MustRegister 把指标注册到一个全局的“指标注册表”（Registry）里。
+	// 这个注册表本质上就是一个 map，由 Prometheus 客户端库内部维护。
+	// /metrics 接口被请求时，promhttp.Handler() 会去遍历这个注册表，把里面所有已注册的指标序列化成文本格式，返回给 Prometheus。
+	// 没注册的指标，/metrics 里就看不到。
+	prometheus.MustRegister(httpRequestsTotal)
+
+	httpRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "http_request_duration_seconds",
+		Help:    "HTTP 请求耗时（秒）",
+		Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2, 5}},
+		[]string{"method", "path"})
+	prometheus.MustRegister(httpRequestDuration)
+}
+
+// 创建两个导出函数，通过中间件来调用这两个函数来对指标对象进行修改
+// .WithLabelValues() 这个函数相当于带自动创建的 map 查找，负责定位
+
+func RecordRequest(method, path, status string) {
+	// 这个函数会根据 httpRequestsTotal 的参数数量来确定 WithLabelValues 里需要几个参数，少了会报错，但要是位置传反了不管！！！
+	httpRequestsTotal.WithLabelValues(method, path, status).Inc() // 计数 +1，因为只是用来计数的
+}
+
+func ObserveDuration(method, path string, duration float64) {
+	httpRequestDuration.WithLabelValues(method, path).Observe(duration) // Observe 函数负责记录 duration 的值
+}

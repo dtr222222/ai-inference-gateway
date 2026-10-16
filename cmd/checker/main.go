@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"my-checker/internal/config"
 	h "my-checker/internal/handler"
+	"my-checker/internal/metrics"
 	"my-checker/internal/middleware"
 	"my-checker/internal/repository"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -24,6 +26,9 @@ func main() {
 	logger := slog.New(jsonHandler)
 	slog.SetDefault(logger)
 	slog.Info("slog 配置加载成功")
+
+	// 初始化 metrics
+	metrics.Init()
 
 	err := godotenv.Load()
 	if errors.Is(err, os.ErrNotExist) {
@@ -57,8 +62,9 @@ func main() {
 	// gin 框架
 	router := gin.New()
 	// 加入中间件
-	router.Use(middleware.SlogMiddleware())
 	router.Use(middleware.RecoveryMiddleware())
+	router.Use(middleware.SlogMiddleware())
+	router.Use(middleware.MetricsMiddleware())
 	handler := &h.Handler{Cfg: cfg, CheckRepo: repo}
 
 	{
@@ -67,6 +73,8 @@ func main() {
 		v1.GET("/results", handler.GetResultsHandler)
 	}
 
+	// 注册 metrics 路由
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	// graceful shutdown
 	srv := &http.Server{
 		// 这个地方真正决定了开放哪个端口
@@ -77,7 +85,7 @@ func main() {
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("listen: %s\n", "error", err)
+			slog.Error("listen failed", "error", err)
 		}
 	}()
 
