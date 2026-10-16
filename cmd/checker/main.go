@@ -26,7 +26,9 @@ func main() {
 	slog.Info("slog 配置加载成功")
 
 	err := godotenv.Load()
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
+		slog.Warn(".env 文件不存在", "error", err)
+	} else if err != nil {
 		slog.Error("环境变量导入失败", "error", err)
 		return
 	}
@@ -67,6 +69,7 @@ func main() {
 
 	// graceful shutdown
 	srv := &http.Server{
+		// 这个地方真正决定了开放哪个端口
 		Addr:              ":8080",
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,

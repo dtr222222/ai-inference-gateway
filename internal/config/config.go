@@ -16,14 +16,21 @@ type Config struct {
 
 // Load error 类型最好和结构体分开，便于调用时处理错误
 func Load() (*Config, error) {
-	timeout, err := strconv.Atoi(os.Getenv("TIMEOUT_SECONDS"))
+	timeoutStr := os.Getenv("TIMEOUT_SECONDS")
+	concurrencyStr := os.Getenv("CONCURRENCY")
+	dsn := os.Getenv("DB_DSN")
+
+	if timeoutStr == "" || concurrencyStr == "" || dsn == "" {
+		return nil, fmt.Errorf("环境变量缺失：TIMEOUT_SECONDS=%q，CONCURRENCY=%q，DB_DSN=%q",
+			timeoutStr, concurrencyStr, dsn)
+	}
+	timeout, err := strconv.Atoi(timeoutStr)
 	if err != nil {
 		return nil, fmt.Errorf("TIMEOUT_SECONDS 格式错误: %w", err)
 	}
-	concurrency, err := strconv.Atoi(os.Getenv("CONCURRENCY"))
+	concurrency, err := strconv.Atoi(concurrencyStr)
 	if err != nil {
 		return nil, fmt.Errorf("CONCURRENCY 格式错误: %w", err)
 	}
-	dsn := os.Getenv("DB_DSN")
 	return &Config{Timeout: timeout, Concurrency: concurrency, DSN: dsn}, nil
 }

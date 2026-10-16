@@ -161,6 +161,131 @@ go test -v -race ./...
 - **时区与 parseTime**：DSN 必须包含 `parseTime=True&loc=Local`，否则 `time.Time` 类型读写会出错。
 - **GORM 慢 SQL 日志**：默认输出到标准输出，与 JSON 日志混在一起，后续可配置 GORM 使用 `slog` 或调高阈值。
 
+## 🐳 Docker 化部署
+
+本项目已完成容器化，使用 Docker Compose 编排 Go 服务与 MySQL 数据库。**一条命令即可启动全套服务。**
+
+### 架构
+
+```text
+┌────────────────────────────────────────────────┐
+│ Docker Compose Network (my-checker_default)    │
+│                                                │
+│  ┌──────────────────┐    ┌──────────────────┐  │
+│  │ ai_probe         │───→│ mysql            │  │
+│  │ (Go 服务)        │    │ (MySQL 8.0)      │  │
+│  │ 容器内监听 :8080 │    │ 容器内监听 :3306 │  │
+│  └────────┬─────────┘    └────────┬─────────┘  │
+│           │                       │            │
+│           │                       │            │
+│  ┌────────▼───────────────────────▼─────────┐  │
+│  │ Volume: mysql_data                       │  │
+│  │ (MySQL 数据持久化到宿主机)                  │  │
+│  └──────────────────────────────────────────┘  │
+└────────────────────────────────────────────────┘
+           │
+      宿主机端口 8000
+           │
+        localhost:8000
+```
+
+### 一键启动
+
+**前置要求**：Docker Desktop 已启动。
+
+```bash
+# 构建镜像并启动所有服务
+docker compose up --build
+```
+
+**启动流程**：
+1. 创建 `mysql` 容器，执行初始化（建库 `ai_probe`、建用户）。
+2. `healthcheck` 每 10 秒探测一次 MySQL 是否就绪。
+3. MySQL 状态变为 `healthy` 后，才启动 `ai_probe` 容器。
+4. Go 服务连上 `mysql:3306`，开始监听 8080。
+5. 宿主机可通过 `localhost:8000` 访问。
+
+**首次启动约需 30-60 秒**（等 MySQL 初始化）。
+
+### 访问接口
+
+宿主机端口为 **8000**（映射到容器内的 8080）：
+
+```bash
+# 发起检查
+curl -X POST http://localhost:8000/api/v1/check \
+  -H "Content-Type: application/json" \
+  -d '{"urls":["https://github.com"]}'
+
+# 查询历史
+curl http://localhost:8000/api/v1/results
+```
+
+### 常用命令
+
+```bash
+# 查看容器状态
+docker compose ps
+
+# 查看日志
+docker compose logs -f ai_probe
+docker compose logs -f mysql
+
+# 停止服务（保留数据）
+docker compose down
+
+# 停止服务并删除数据卷（谨慎使用）
+docker compose down -v
+```
+
+### 关键设计说明
+
+| 设计点 | 实现方式 | 目的 |
+|---|---|---|
+| **多阶段构建** | builder（编译）+ alpine（运行） | 镜像从 800MB 压到 22MB |
+| **静态编译** | `CGO_ENABLED=0` | 二进制不依赖 glibc，能在 alpine 运行 |
+| **服务发现** | DSN 用 `mysql:3306` 而非 `127.0.0.1` | Compose 网络内通过服务名互访 |
+| **健康检查** | `mysqladmin ping -h 127.0.0.1` | 强制走 TCP，避免 socket 假就绪 |
+| **启动顺序** | `depends_on` + `condition: service_healthy` | 防止 Go 服务在 MySQL 就绪前启动 |
+| **数据持久化** | 命名卷 `mysql_data` | 容器删除后数据不丢 |
+| **环境变量注入** | compose 的 `environment` 字段 | 与本地 `.env` 开发解耦 |
+
+### 配置说明
+
+Docker 环境下，配置**不再来自 `.env` 文件**，而是由 `docker-compose.yml` 的 `environment` 字段注入：
+
+```yaml
+environment:
+  - TIMEOUT_SECONDS=10
+  - CONCURRENCY=2
+  - DB_DSN=root:123456@tcp(mysql:3306)/ai_probe?charset=utf8mb4&parseTime=True&loc=Local
+```
+
+- `.env` 文件已被 `.dockerignore` 排除，**不会打进镜像**。
+- 代码里的 `godotenv.Load()` 在找不到 `.env` 时会**降级为 warning**，继续使用系统环境变量。
+
+### 常见问题
+
+**Q：为什么端口是 8000，不是 8080？**
+A：`ports: "8000:8080"` 表示宿主机用 8000，容器内服务监听 8080。避免和本机其他服务撞端口。
+
+**Q：数据存在哪里？**
+A：命名卷 `mysql_data`。可以用 `docker volume inspect my-checker_mysql_data` 查看具体位置。
+
+**Q：怎么连数据库调试？**
+A：`mysql` 服务默认**不暴露端口给宿主机**（更安全）。如需本地连接，在 `docker-compose.yml` 的 `mysql` 服务下加：
+```yaml
+ports:
+  - "3307:3306"
+```
+然后用 Navicat/DBeaver 连 `localhost:3307`。
+
+**Q：`connection refused` 怎么排查？**
+A：通常是 MySQL 还没就绪。检查：
+1. `docker compose ps` —— mysql 是不是 `healthy`？
+2. `docker compose logs mysql` —— 有没有 `ready for connections`？
+3. `healthcheck` 的 `test` 是否用了 `-h 127.0.0.1`（而不是 `localhost`）？
+
 ## 📄 License
 
 [MIT](https://choosealicense.com/licenses/mit/)

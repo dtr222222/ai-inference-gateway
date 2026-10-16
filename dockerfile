@@ -27,6 +27,6 @@ WORKDIR /app
 # 从第一阶段中把二进制文件拷过来
 COPY --from=builder /app/ai-probe .
 
-EXPOSE 8000
+EXPOSE 8080
 
 CMD ["./ai-probe"]

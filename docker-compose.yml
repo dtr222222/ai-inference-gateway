@@ -1,0 +1,32 @@
+services:
+  ai_probe:
+    build: .
+    ports:
+      - "8000:8080"
+    environment:
+      - TIMEOUT_SECONDS=10
+      - CONCURRENCY=2
+      - DB_DSN=root:123456@tcp(mysql:3306)/ai_probe?charset=utf8mb4&parseTime=True&loc=Local
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: ai_probe
+      MYSQL_ROOT_PASSWORD: 123456
+    volumes:
+      # 把声明的卷挂载到这里
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      # 下面的 127.0.0.1 不能换成 localhost，127.0.0.1 能够强制走 tcp 协议，避免 ai_probe 在数据库之前启动
+      test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1" ]
+      interval: 10s     # 每 10s 探测一次
+      timeout: 5s       # 单次探测超过 5s 算失败
+      retries: 5        # 连续失败 5 次才算不健康
+      start_period: 30s # 容器刚启动时，先给 30 秒缓冲期，不算失败
+
+volumes:
+  # 告诉 Docker Compose：“我要创建一个名叫 mysql_data 的持久化数据卷。”
+  mysql_data:
