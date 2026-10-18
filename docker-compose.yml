@@ -39,6 +39,19 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
 
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      prometheus:
+        condition: service_started
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+
 volumes:
   # 告诉 Docker Compose：“我要创建一个名叫 mysql_data 的持久化数据卷。”
   # mysql_data 是一个 Docker 命名卷，本质是 Docker 在 WSL2 里托管的一个目录，里面装着 MySQL 的数据文件。
@@ -46,3 +59,4 @@ volumes:
   # MySQL 数据存在这里
   mysql_data:
   prometheus_data:
+  grafana_data:
