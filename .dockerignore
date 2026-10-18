@@ -10,4 +10,8 @@ bin
 docker-compose.yml
 dockerfile
 
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
 # 有需要再补充

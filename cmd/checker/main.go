@@ -71,6 +71,7 @@ func main() {
 		v1 := router.Group("/api/v1")
 		v1.POST("/check", handler.CheckHandler)
 		v1.GET("/results", handler.GetResultsHandler)
+		v1.POST("/chat", h.ChatHandler)
 	}
 
 	// 注册 metrics 路由
