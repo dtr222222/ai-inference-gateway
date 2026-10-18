@@ -12,5 +12,6 @@ class GenRequest(BaseModel):
 
 @app.post("/prompt")
 def generate_text(request: GenRequest):
+    # 调用模型生成文本
     result = generator(request.prompt, max_length=50)
     return {"result": result}

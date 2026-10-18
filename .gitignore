@@ -2,6 +2,4 @@
 
 .venv/
 __pycache__/
-.idea/go.imports.xml
-.idea/db-forest-config.xml
-.idea/dataSources.xml
+.idea/

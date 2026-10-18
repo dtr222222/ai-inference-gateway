@@ -50,7 +50,7 @@ func ChatHandler(c *gin.Context) {
 	// 定义超时上下文
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
-	// 初始化向 python 服务器请求
+	// 创建请求
 	req, err := http.NewRequestWithContext(ctx, "POST", "http://python_service:8000/prompt", reader)
 	if err != nil {
 		slog.Error("初始化请求失败", "error", err)
