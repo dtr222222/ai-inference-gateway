@@ -7,11 +7,14 @@ generator = pipeline("text-generation", model="sshleifer/tiny-gpt2")
 
 
 class GenRequest(BaseModel):
-    prompt: str
+    prompts: list[str]
 
 
 @app.post("/prompt")
 def generate_text(request: GenRequest):
     # 调用模型生成文本
-    result = generator(request.prompt, max_length=50)
-    return {"result": result}
+    raw_results = generator(request.prompts, max_new_tokens=50)
+    texts = [res[0]["generated_text"] for res in raw_results]
+    return {"results": texts}
+
+

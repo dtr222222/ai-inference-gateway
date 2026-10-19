@@ -66,6 +66,7 @@ func main() {
 	router.Use(middleware.SlogMiddleware())
 	router.Use(middleware.MetricsMiddleware())
 	handler := &h.Handler{Cfg: cfg, CheckRepo: repo}
+	go h.StartBatcher()
 
 	{
 		v1 := router.Group("/api/v1")
