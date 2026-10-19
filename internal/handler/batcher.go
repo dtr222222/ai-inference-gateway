@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"my-checker/internal/metrics"
 	"net/http"
 	"time"
 )
@@ -19,21 +20,19 @@ type Job struct {
 // JobQueue 定义全局缓冲通道
 var JobQueue = make(chan Job, 1000)
 
-// 定义 Go 端的批量请求/响应结构体
-
-// BatchPyRequest 请求结构体
+// BatchPyRequest 批量请求结构体
 type BatchPyRequest struct {
 	Prompts []string `json:"prompts"`
 }
 
-// BatchPyResponse 响应结构体
+// BatchPyResponse 批量响应结构体
 type BatchPyResponse struct {
 	Results []string `json:"results"`
 }
 
 func processBatch(batch []Job) {
-
-	// 定义失败函数
+	metrics.ObserveBatchSize(len(batch))
+	// 定义失败函数，简化错误处理
 	notifyFail := func(errMsg string, err error) {
 		if err != nil {
 			slog.Error(errMsg, "error", err)
@@ -45,11 +44,13 @@ func processBatch(batch []Job) {
 		}
 	}
 
+	// 把字符串都传到 batchRequest 里
 	var batchRequest BatchPyRequest
 	for _, job := range batch {
 		batchRequest.Prompts = append(batchRequest.Prompts, job.Prompt)
 	}
 
+	// JSON 化
 	buf, err := json.Marshal(batchRequest)
 	if err != nil {
 		notifyFail("JSON 格式化失败", err)
@@ -108,6 +109,7 @@ func StartBatcher() {
 			// 提取 batch
 			var batch []Job
 			batchSize := len(JobQueue)
+			metrics.SetQueueSize(batchSize)
 			// 这里不能写 for job := range JobQueue
 			// 因为直到 JobQueue 通道被关闭后，循环才会结束，会一直被堵塞
 			for range batchSize {

@@ -7,6 +7,8 @@ import (
 var (
 	httpRequestsTotal   *prometheus.CounterVec   // 带标签的计数器
 	httpRequestDuration *prometheus.HistogramVec // 带标签的直方图
+	batchQueueSize      prometheus.Gauge
+	batchSize           prometheus.Histogram
 )
 
 // Init 小写的 init 函数会在程序跑起来之前隐式调用
@@ -22,11 +24,25 @@ func Init() {
 	// 没注册的指标，/metrics 里就看不到。
 	prometheus.MustRegister(httpRequestsTotal)
 
-	httpRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "http_request_duration_seconds",
+	httpRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "http_request_duration_seconds",
 		Help:    "HTTP 请求耗时（秒）",
 		Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2, 5}},
 		[]string{"method", "path"})
 	prometheus.MustRegister(httpRequestDuration)
+
+	batchQueueSize = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "batch_queue_size",
+		Help: "当前在队列中等待的请求数",
+	})
+	prometheus.MustRegister(batchQueueSize)
+
+	batchSize = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "batch_size",
+		Help:    "每次发送给模型的批量大小",
+		Buckets: []float64{1, 2, 5, 10, 20, 50, 100},
+	})
+	prometheus.MustRegister(batchSize)
 }
 
 // 创建两个导出函数，通过中间件来调用这两个函数来对指标对象进行修改
@@ -39,4 +55,12 @@ func RecordRequest(method, path, status string) {
 
 func ObserveDuration(method, path string, duration float64) {
 	httpRequestDuration.WithLabelValues(method, path).Observe(duration) // Observe 函数负责记录 duration 的值
+}
+
+func SetQueueSize(size int) {
+	batchQueueSize.Set(float64(size))
+}
+
+func ObserveBatchSize(size int) {
+	batchSize.Observe(float64(size))
 }
