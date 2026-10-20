@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+// TestCheckURL hits a real external endpoint; keep it for manual/e2e runs,
+// but note it is flaky in CI without network access.
 func TestCheckURL(t *testing.T) {
 	ctx := context.Background()
 	url := "https://www.docker.com/"
@@ -15,23 +17,23 @@ func TestCheckURL(t *testing.T) {
 
 	result := checkURL(ctx, url, timeout)
 	if result.URL != url {
-		t.Errorf("url is wrong")
+		t.Errorf("expected url %q, got %q", url, result.URL)
 	}
 
 	if result.Status != "200 OK" {
-		t.Errorf("status is wrong")
+		t.Errorf("expected status %q, got %q", "200 OK", result.Status)
 	}
 
 	if result.Err != nil {
-		t.Errorf("err")
+		t.Errorf("expected no error, got %v", result.Err)
 	}
 
 	if result.Success != true {
-		t.Errorf("success is false")
+		t.Errorf("expected success=true, got %v", result.Success)
 	}
-
 }
 
+// TestCheckFakeHttp uses an in-process server so the test is hermetic and fast.
 func TestCheckFakeHttp(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -42,6 +44,6 @@ func TestCheckFakeHttp(t *testing.T) {
 	result := checkURL(context.Background(), server.URL, 2*time.Second)
 
 	if !result.Success || result.Status != "200 OK" {
-		t.Errorf("期望 200 OK，实际得到 %v", result.Status)
+		t.Errorf("expected 200 OK, got %v", result.Status)
 	}
 }

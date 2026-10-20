@@ -12,12 +12,14 @@ import (
 )
 
 // Job 定义 Job 和队列
+// Job represents a single prompt request and the channel its result is written back to.
 type Job struct {
 	Prompt     string
 	ResultChan chan string
 }
 
 // JobQueue 定义全局缓冲通道
+// JobQueue is a bounded buffer; writers block once it is full (backpressure).
 var JobQueue = make(chan Job, 1000)
 
 // BatchPyRequest 批量请求结构体
@@ -33,6 +35,7 @@ type BatchPyResponse struct {
 func processBatch(batch []Job) {
 	metrics.ObserveBatchSize(len(batch))
 	// 定义失败函数，简化错误处理
+	// notifyFail broadcasts the same error to every job in the batch and logs it once.
 	notifyFail := func(errMsg string, err error) {
 		if err != nil {
 			slog.Error(errMsg, "error", err)
@@ -40,7 +43,7 @@ func processBatch(batch []Job) {
 			slog.Error(errMsg)
 		}
 		for _, job := range batch {
-			job.ResultChan <- "错误：" + errMsg
+			job.ResultChan <- "error: " + errMsg
 		}
 	}
 
@@ -53,43 +56,44 @@ func processBatch(batch []Job) {
 	// JSON 化
 	buf, err := json.Marshal(batchRequest)
 	if err != nil {
-		notifyFail("JSON 格式化失败", err)
+		notifyFail("failed to marshal request to JSON", err)
 		return
 	}
 
 	buffer := bytes.NewBuffer(buf)
+	// 10s is the per-batch RPC budget; it must stay below the caller's HTTP timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	//  不要在循环里使用，而是单独开一个函数
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", "http://python_service:8000/prompt", buffer)
 	if err != nil {
-		notifyFail("初始化请求失败", err)
+		notifyFail("failed to build upstream request", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		notifyFail("发送请求失败", err)
+		notifyFail("failed to call model service", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		notifyFail("模型服务返回非 200 状态", nil)
+		notifyFail("model service returned non-200 status", nil)
 		return
 	}
 	reader, err := io.ReadAll(resp.Body)
 	if err != nil {
-		notifyFail("读取回复失败", err)
+		notifyFail("failed to read response body", err)
 		return
 	}
 
 	var batchResponse BatchPyResponse
 	err = json.Unmarshal(reader, &batchResponse)
 	if err != nil {
-		notifyFail("反 JSON 格式化失败", err)
+		notifyFail("failed to unmarshal response JSON", err)
 		return
 	}
 
@@ -97,7 +101,7 @@ func processBatch(batch []Job) {
 		if i < len(batchResponse.Results) {
 			job.ResultChan <- batchResponse.Results[i]
 		} else {
-			job.ResultChan <- "错误：未能获取有效结果"
+			job.ResultChan <- "error: no valid result returned"
 		}
 	}
 }

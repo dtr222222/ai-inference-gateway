@@ -1,291 +1,146 @@
-# ai-probe
+# AI Inference Gateway
 
-一个基于 Go + Gin + GORM 的高并发服务健康探测组件。支持并发探测 URL 可用性、结构化日志、崩溃兜底、优雅退出、数据持久化与分页查询。
+[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go)](https://go.dev/)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python)](https://www.python.org/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker)](https://www.docker.com/)
+[![Prometheus](https://img.shields.io/badge/Monitoring-Prometheus-E6522C?style=flat-square&logo=prometheus)](https://prometheus.io/)
 
-## ✨ 功能特性
+一个基于 Go (Gin) 与 Python (FastAPI) 的**异构大模型推理网关**。通过高并发控制、动态批处理（Dynamic Batching）与全链路可观测性，为底层脆弱的 LLM 模型提供企业级的流量调度与保护。
 
-- **并发探测**：基于 Worker Pool 模式，支持自定义并发数，快速探测大量 URL。
-- **超时控制**：基于 `context.WithTimeout` 实现单次请求精准超时，并支持级联取消。
-- **优雅退出**：使用 `signal.NotifyContext` 监听系统信号，配合 `srv.Shutdown` 实现平滑关闭。
-- **结构化日志**：集成 `log/slog`，输出 JSON 格式访问日志，便于接入 ELK / Loki。
-- **崩溃兜底**：自定义 Recovery 中间件，捕获 panic，返回 500 并记录堆栈，服务不崩。
-- **数据持久化**：使用 GORM + MySQL 保存每次检查结果，支持分页查询历史记录。
-- **连接池配置**：合理配置 `MaxOpenConns`、`MaxIdleConns`、`ConnMaxLifetime`，提升数据库性能。
-- **参数安全**：分页参数做上下限校验，防止恶意大 `pageSize` 打垮数据库。
+## 📖 目录
 
-## 📁 项目结构
+- [核心特性](#-核心特性)
+- [系统架构](#-系统架构)
+- [技术栈](#-技术栈)
+- [快速开始](#-快速开始)
+- [API 文档](#-api-文档)
+- [工程设计亮点](#-工程设计亮点)
 
-```text
-.
-├── cmd/
-│   └── checker/
-│       └── main.go               # 程序入口：组装配置、DB、路由、优雅退出
-├── internal/
-│   ├── checker/
-│   │   ├── checker.go            # 并发探测核心逻辑（Worker Pool + Context）
-│   │   └── checker_test.go       # 核心逻辑单元测试（httptest）
-│   ├── config/
-│   │   ├── config.go             # 环境变量解析为 Config 结构体
-│   │   └── config_test.go        # 配置模块单元测试
-│   ├── handler/
-│   │   └── check.go              # HTTP 处理器：CheckHandler、GetResultsHandler
-│   ├── middleware/
-│   │   ├── logger.go             # SlogMiddleware：结构化访问日志
-│   │   └── recovery.go           # RecoveryMiddleware：panic 兜底
-│   ├── model/
-│   │   └── check_result.go       # GORM 数据模型
-│   └── repository/
-│       ├── db.go                 # InitDB：连接 MySQL、AutoMigrate、连接池
-│       └── check_repo.go         # CheckRepository：SaveResults、GetResults
-├── .env.example                  # 环境变量模板
-├── go.mod
-└── README.md
+---
+
+## ✨ 核心特性
+
+- **异构微服务架构**：Go 作为高并发控制面（网关），Python 作为纯数据面（模型推理），通过 HTTP 内部网络高效通信。
+- **动态批处理 (Dynamic Batching)**：网关在内存中维护请求队列，以 `100ms` 为时间窗口，将并发请求打包成 Batch 一次性发送给模型，大幅提升后端吞吐量。
+- **并发保护与排队**：利用带缓冲的 Channel 实现信号量，防止海量请求瞬间压垮模型；基于 `context` 实现精确的排队超时与客户端断连感知。
+- **全链路可观测性**：集成 `Prometheus` 与 `Grafana`，实时监控网关 QPS、请求延迟分布（P95/P99）、当前排队积压数及批处理大小分布。
+- **优雅启停**：结合 `signal.NotifyContext` 与 `http.Server.Shutdown`，确保滚动更新时不丢失任何正在处理的请求。
+- **容器化编排**：基于 Docker Compose 一键拉起 Go 网关、Python 模型、MySQL、Prometheus、Grafana 五件套。
+
+---
+
+## 🏗️ 系统架构
+
+```mermaid
+graph TD
+    Client[客户端 / Postman] -->|HTTP POST /api/v1/chat| GoGateway(Go Gateway / Gin)
+    
+    subgraph Go Gateway 内部机制
+        GoGateway -->|1. 解析请求| Semaphore[并发信号量 / Channel]
+        Semaphore -->|2. 放入队列| JobQueue((Job Queue))
+        JobQueue -->|3. 100ms 攒批| Batcher[Batcher 引擎]
+    end
+    
+    Batcher -->|4. HTTP POST 批量请求| PythonLLM[Python Service / FastAPI]
+    
+    subgraph Python Service
+        PythonLLM -->|加载| TinyGPT2((Tiny-GPT2 模型))
+    end
+    
+    PythonLLM -->|5. 返回 Batch 结果| Batcher
+    Batcher -->|6. 分发到专属 ResultChan| Semaphore
+    Semaphore -->|7. 响应| Client
+
+    subgraph 可观测性系统
+        GoGateway -.->|/metrics| Prometheus
+        Prometheus -.->|数据源| Grafana
+    end
 ```
+
+---
+
+## 💻 技术栈
+
+- **控制面 (Control Plane)**：Go, Gin, Go Channels, Context, `log/slog`
+- **数据面 (Data Plane)**：Python, FastAPI, HuggingFace `transformers`, PyTorch
+- **基础设施 (Infrastructure)**：Docker, Docker Compose, MySQL (GORM)
+- **可观测性 (Observability)**：Prometheus (client_golang), Grafana
+
+---
 
 ## 🚀 快速开始
 
 ### 前置要求
-
-- Go 1.21+
-- MySQL 8.0（推荐使用 Docker 启动）
-- Docker Desktop（用于运行 MySQL 容器）
-
-### 1. 启动 MySQL（Docker）
-
-```bash
-docker run --name ai-probe-mysql \
-  -e MYSQL_ROOT_PASSWORD=123456 \
-  -e MYSQL_DATABASE=ai_probe \
-  -p 3306:3306 \
-  -d mysql:8.0
-```
-
-### 2. 克隆项目并配置环境变量
-
-```bash
-git clone https://github.com/your-username/ai-probe.git
-cd ai-probe
-cp .env.example .env
-```
-
-编辑 `.env`，填入你的配置（参考 `.env.example`）：
-
-```env
-TARGET_URLS=https://www.docker.com/,https://github.com/
-TIMEOUT_SECONDS=10
-CONCURRENCY=2
-DB_DSN=root:123456@tcp(127.0.0.1:3306)/ai_probe?charset=utf8mb4&parseTime=True&loc=Local
-```
-
-### 3. 运行服务
-
-```bash
-go run ./cmd/checker/main.go
-```
-
-服务默认监听 `:8080`。
-
-## 🧪 测试
-
-```bash
-go test -v -race ./...
-```
-
-## 📡 API 文档
-
-### POST /api/v1/check
-
-发起一次 URL 健康检查。
-
-**请求体**：
-
-```json
-{
-  "urls": ["https://github.com", "https://www.docker.com"]
-}
-```
-
-**响应示例**：
-
-```json
-[
-  {
-    "URL": "https://github.com",
-    "Status": "200 OK",
-    "Duration": "890.5903ms",
-    "Err": null,
-    "Success": true
-  }
-]
-```
-
-### GET /api/v1/results
-
-分页查询历史检查记录。
-
-**查询参数**：
-
-| 参数 | 默认值 | 说明 |
-|---|---|---|
-| `page` | 1 | 页码，最小 1 |
-| `pageSize` | 20 | 每页条数，范围 1-100 |
-
-**响应示例**：
-
-```json
-[
-  {
-    "ID": 1,
-    "URL": "https://github.com",
-    "Status": "200 OK",
-    "Success": true,
-    "Duration": 890590300,
-    "ErrMsg": "",
-    "CreatedAt": "2026-10-14T14:30:00+08:00"
-  }
-]
-```
-
-## 🛠️ 设计实现
-
-- **Worker Pool**：主协程投递任务，多个 worker 并发消费，结果收敛到 `resultChan`。
-- **Context 级联**：从 `c.Request.Context()` 到 `http.NewRequestWithContext` 到 GORM `WithContext`，实现全链路取消。
-- **中间件洋葱模型**：`SlogMiddleware` 和 `RecoveryMiddleware` 按顺序包裹业务 Handler。
-- **错误分层**：业务错误返回 400，数据库/服务端错误返回 500；对外模糊，对内详细。
-- **连接池参数**：`SetMaxOpenConns(100)`、`SetMaxIdleConns(100)`、`SetConnMaxLifetime(time.Hour)`、`SetConnMaxIdleTime(10*time.Minute)`。
-
-## ⚠️ 已知限制与踩坑记录
-
-- **WAF 拦截**：部分站点（如 `chat.deepseek.com`）会识别 Go 默认 User-Agent 和 TLS 指纹，返回 429 或直接断开。后续可通过自定义 `http.Transport` 伪装浏览器请求头绕过。
-- **分页边界**：客户端传入超大 `pageSize` 时必须强制限制（已实现上限 100）。
-- **时区与 parseTime**：DSN 必须包含 `parseTime=True&loc=Local`，否则 `time.Time` 类型读写会出错。
-- **GORM 慢 SQL 日志**：默认输出到标准输出，与 JSON 日志混在一起，后续可配置 GORM 使用 `slog` 或调高阈值。
-
-## 🐳 Docker 化部署
-
-本项目已完成容器化，使用 Docker Compose 编排 Go 服务与 MySQL 数据库。**一条命令即可启动全套服务。**
-
-### 架构
-
-```text
-┌────────────────────────────────────────────────┐
-│ Docker Compose Network (my-checker_default)    │
-│                                                │
-│  ┌──────────────────┐    ┌──────────────────┐  │
-│  │ ai_probe         │───→│ mysql            │  │
-│  │ (Go 服务)         │   │ (MySQL 8.0)       │  │
-│  │ 容器内监听 :8080   │   │ 容器内监听 :3306    │  │
-│  └────────┬─────────┘    └────────┬─────────┘  │
-│           │                       │            │
-│           │                       │            │
-│  ┌────────▼───────────────────────▼─────────┐  │
-│  │ Volume: mysql_data                       │  │
-│  │ (MySQL 数据持久化到宿主机)                  │  │
-│  └──────────────────────────────────────────┘  │
-└────────────────────────────────────────────────┘
-           │
-      宿主机端口 8000
-           │
-        localhost:8000
-```
+- 已安装 Docker 与 Docker Compose
+- 至少 4GB 可用内存（由于包含 PyTorch 模型与监控组件）
 
 ### 一键启动
 
-**前置要求**：Docker Desktop 已启动。
-
 ```bash
-# 构建镜像并启动所有服务
-docker compose up --build
+# 克隆项目
+git clone https://github.com/your-username/ai-inference-gateway.git
+cd ai-inference-gateway
+
+# 启动所有微服务（后台运行）
+docker compose up -d --build
 ```
 
-**启动流程**：
-1. 创建 `mysql` 容器，执行初始化（建库 `ai_probe`、建用户）。
-2. `healthcheck` 每 10 秒探测一次 MySQL 是否就绪。
-3. MySQL 状态变为 `healthy` 后，才启动 `ai_probe` 容器。
-4. Go 服务连上 `mysql:3306`，开始监听 8080。
-5. 宿主机可通过 `localhost:8000` 访问。
+服务启动后，各组件的访问地址如下：
+- **Go 网关 API**: `http://localhost:8080`
+- **Python 模型服务 (内部)**: `http://python_service:8000`
+- **Prometheus 面板**: `http://localhost:9090`
+- **Grafana 监控大屏**: `http://localhost:3000` (账号/密码: `admin`)
 
-**首次启动约需 30-60 秒**（等 MySQL 初始化）。
+---
 
-### 访问接口
+## 📡 API 文档
 
-宿主机端口为 **8000**（映射到容器内的 8080）：
+### 发起推理请求
 
-```bash
-# 发起检查
-curl -X POST http://localhost:8000/api/v1/check \
-  -H "Content-Type: application/json" \
-  -d '{"urls":["https://github.com"]}'
+**POST** `/api/v1/chat`
 
-# 查询历史
-curl http://localhost:8000/api/v1/results
+**Request Body:**
+```json
+{
+  "prompt": "Hello, I am a Go developer"
+}
 ```
 
-### 常用命令
-
-```bash
-# 查看容器状态
-docker compose ps
-
-# 查看日志
-docker compose logs -f ai_probe
-docker compose logs -f mysql
-
-# 停止服务（保留数据）
-docker compose down
-
-# 停止服务并删除数据卷（谨慎使用）
-docker compose down -v
+**Response (200 OK):**
+```json
+{
+  "reply": "Hello, I am a Go developer. I am currently working on..."
+}
 ```
 
-### 关键设计说明
+**错误响应:**
+- `400 Bad Request`: 请求 JSON 格式错误。
+- `429 Too Many Requests`: 网关排队已满，请求被拒绝（触发限流）。
+- `502 Bad Gateway`: Python 模型服务不可用。
+- `504 Gateway Timeout`: 模型处理超时。
 
-| 设计点 | 实现方式 | 目的 |
-|---|---|---|
-| **多阶段构建** | builder（编译）+ alpine（运行） | 镜像从 800MB 压到 22MB |
-| **静态编译** | `CGO_ENABLED=0` | 二进制不依赖 glibc，能在 alpine 运行 |
-| **服务发现** | DSN 用 `mysql:3306` 而非 `127.0.0.1` | Compose 网络内通过服务名互访 |
-| **健康检查** | `mysqladmin ping -h 127.0.0.1` | 强制走 TCP，避免 socket 假就绪 |
-| **启动顺序** | `depends_on` + `condition: service_healthy` | 防止 Go 服务在 MySQL 就绪前启动 |
-| **数据持久化** | 命名卷 `mysql_data` | 容器删除后数据不丢 |
-| **环境变量注入** | compose 的 `environment` 字段 | 与本地 `.env` 开发解耦 |
+---
 
-### 配置说明
+## 🧠 工程设计亮点
 
-Docker 环境下，配置**不再来自 `.env` 文件**，而是由 `docker-compose.yml` 的 `environment` 字段注入：
+### 1. 为什么使用动态批处理 (Dynamic Batching)？
+直接对模型发起并发请求会导致极高的上下文切换开销和显存/CPU 碎片化。本系统在 Go 网关引入了 `Batcher` 引擎：
+- 利用 `time.Ticker` 每 `100ms` 触发一次。
+- 收集这段时间内 `JobQueue` 里的所有请求，将 `[]string` 打包成一个矩阵。
+- Python 端的 HuggingFace `pipeline` 原生支持数组输入，利用 CPU/GPU 的并行计算能力，将原本需要 N 次的推理合并为 1 次，**大幅提升了系统的吞吐上限**。
 
-```yaml
-environment:
-  - TIMEOUT_SECONDS=10
-  - CONCURRENCY=2
-  - DB_DSN=root:123456@tcp(mysql:3306)/ai_probe?charset=utf8mb4&parseTime=True&loc=Local
-```
+### 2. 并发控制与防雪崩
+- **排队机制**：网关通过带缓冲的 Channel 保护后端，若 `JobQueue` 达到上限，或者请求在队列中等待超时（`select` + `time.After`），直接返回 `429`，防止无限排队耗尽服务器内存。
+- **上下文级联取消**：如果客户端在等待期间断开连接（`c.Request.Context().Done()`），网关会立即释放该请求占用的资源，并停止后续的模型调用。
 
-- `.env` 文件已被 `.dockerignore` 排除，**不会打进镜像**。
-- 代码里的 `godotenv.Load()` 在找不到 `.env` 时会**降级为 warning**，继续使用系统环境变量。
+### 3. 可观测性大屏
+在 Grafana 中，可以直观地看到以下核心指标：
+- `http_requests_total`: 接口 QPS 与错误率趋势。
+- `http_request_duration_seconds`: P95/P99 响应延迟。
+- `batch_queue_size`: 网关内部积压的请求数（反映系统拥堵情况）。
+- `batch_size`: 每次批处理的请求数量分布。
 
-### 常见问题
-
-**Q：为什么端口是 8000，不是 8080？**
-A：`ports: "8000:8080"` 表示宿主机用 8000，容器内服务监听 8080。避免和本机其他服务撞端口。
-
-**Q：数据存在哪里？**
-A：命名卷 `mysql_data`。可以用 `docker volume inspect my-checker_mysql_data` 查看具体位置。
-
-**Q：怎么连数据库调试？**
-A：`mysql` 服务默认**不暴露端口给宿主机**（更安全）。如需本地连接，在 `docker-compose.yml` 的 `mysql` 服务下加：
-```yaml
-ports:
-  - "3307:3306"
-```
-然后用 Navicat/DBeaver 连 `localhost:3307`。
-
-**Q：`connection refused` 怎么排查？**
-A：通常是 MySQL 还没就绪。检查：
-1. `docker compose ps` —— mysql 是不是 `healthy`？
-2. `docker compose logs mysql` —— 有没有 `ready for connections`？
-3. `healthcheck` 的 `test` 是否用了 `-h 127.0.0.1`（而不是 `localhost`）？
-
+---
 
 ## 📄 License
 

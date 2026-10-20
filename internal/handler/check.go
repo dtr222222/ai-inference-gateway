@@ -14,12 +14,14 @@ import (
 )
 
 // 改进：有待增加分页元数据
+// TODO: add pagination metadata (page, pageSize, total) to responses.
 
 // CheckRequest 请求结构体（定义客户端传什么）
 type CheckRequest struct {
 	URLs []string `json:"urls"`
 }
 
+// Handler aggregates dependencies (config + repos) and is injected at startup.
 type Handler struct {
 	Cfg       *config.Config
 	CheckRepo *repository.CheckRepository
@@ -33,7 +35,9 @@ func (h *Handler) CheckHandler(c *gin.Context) {
 	req := CheckRequest{}
 	// ShouldBindWith 的作用是将用户传上来的 json 数据解析并绑定到 req 中
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		// NOTE: this leaks the raw bind error to the client, which contradicts
+		// the "vague to client, detailed in logs" rule used in ChatHandler.
+		c.JSON(http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -56,7 +60,7 @@ func (h *Handler) CheckHandler(c *gin.Context) {
 		// 然后再解析 Duration （失败只影响 Duration）
 		duration, err := time.ParseDuration(result.Duration)
 		if err != nil {
-			slog.Warn("Duration 解析失败")
+			slog.Warn("failed to parse duration", "raw", result.Duration, "error", err)
 			duration = 0
 		}
 
@@ -74,12 +78,17 @@ func (h *Handler) CheckHandler(c *gin.Context) {
 	err := h.CheckRepo.SaveResults(c.Request.Context(), modelResults)
 	if err != nil {
 		// 若是存库发生错误
-		slog.Error("数据库保存失败",
+		// Deliberate degradation: persistence failure does not fail the request,
+		// because the client already got valid results. Only log it here.
+		// TODO: expose this as a metric (e.g. db_save_errors_total) so it is alertable.
+		slog.Error("failed to save results to database",
 			"error", err,
 			"client_ip", c.ClientIP(),
 			"path", c.Request.URL.Path,
 			"urls_count", len(modelResults))
 	}
+	// NOTE: returns `results` (raw checker output) while the DB stores `modelResults`.
+	// The two schemas differ (Duration: string vs int64) -- intentional or a bug?
 	c.JSON(http.StatusOK, results)
 }
 
@@ -90,9 +99,9 @@ func (h *Handler) GetResultsHandler(c *gin.Context) {
 	page, errPage := strconv.Atoi(pageStr)
 	pageSize, errPageSize := strconv.Atoi(pageSizeStr)
 	if errPage != nil || errPageSize != nil {
-		slog.Error("分页参数解析失败", "errPage", errPage, "errPageSize", errPageSize)
+		slog.Error("failed to parse pagination params", "errPage", errPage, "errPageSize", errPageSize)
 		// 返回客户端的信应该专业但模糊，不要返回数据库的原始错误，可能会被攻击
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid page or pageSize"})
+		c.JSON(http.StatusBadRequest, "invalid page or pageSize")
 		return
 	}
 
@@ -103,6 +112,8 @@ func (h *Handler) GetResultsHandler(c *gin.Context) {
 	if pageSize < 1 {
 		pageSize = 20
 	}
+	// Silent clamp: a client asking for pageSize=200 gets 100 with no notice.
+	// Consider echoing the effective page/pageSize back in the response.
 	if pageSize > 100 {
 		pageSize = 100
 	}
@@ -110,8 +121,8 @@ func (h *Handler) GetResultsHandler(c *gin.Context) {
 
 	results, err := h.CheckRepo.GetResults(c.Request.Context(), pageSize, offset)
 	if err != nil {
-		slog.Error("获取数据库资源失败", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		slog.Error("failed to query database results", "error", err)
+		c.JSON(http.StatusInternalServerError, "internal server error")
 		return
 	}
 
