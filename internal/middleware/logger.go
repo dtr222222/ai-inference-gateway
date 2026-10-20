@@ -19,18 +19,20 @@ func SlogMiddleware() gin.HandlerFunc {
 		// range-queried in Loki/ELK. Prefer a numeric field: "latency_ms": 1234.
 		// NOTE: this check runs AFTER c.Next(), so a panic in a downstream handler
 		// skips the access log entirely (see below).
-		path := c.Request.URL.Path
-		if path == "/metrics" {
-			return
-		}
 
-		latency := time.Since(start).String()
-		method := c.Request.Method
-		status := c.Writer.Status()
-		ip := c.ClientIP()
+		defer func() {
+			path := c.Request.URL.Path
+			if path == "/metrics" {
+				return
+			}
 
-		slog.Info("access log", "latency", latency,
-			"method", method, "url_path", path,
-			"status", status, "client_ip", ip)
+			latency := time.Since(start).String()
+			method := c.Request.Method
+			status := c.Writer.Status()
+			ip := c.ClientIP()
+			slog.Info("access log", "latency", latency,
+				"method", method, "url_path", path,
+				"status", status, "client_ip", ip)
+		}()
 	}
 }

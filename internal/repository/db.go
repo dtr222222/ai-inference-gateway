@@ -2,24 +2,34 @@ package repository
 
 import (
 	"ai-inference-gateway/internal/model"
+	"context"
 	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
-func InitDB(dsn string) (*gorm.DB, error) {
+func InitDB(dsn string, ctx context.Context) (*gorm.DB, error) {
+	// docker-compose 已经保证 mysql 一定会优先启动，但等之后脱离 docker-compose 时单用 gorm.Open 不能保证
+	// mysql 数据库真的被连上，因为 gorm.open 是懒加载机制，只有在第一次使用时才会真的去链接
+	// 因此我们要提前检测一下是不是真的能连接上 （防御性编程）
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}
 
-	err = db.AutoMigrate(&model.CheckResult{})
+	ctxTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	err = sqlDB.PingContext(ctxTimeout)
 	if err != nil {
 		return nil, err
 	}
 
-	sqlDB, err := db.DB()
+	err = db.AutoMigrate(&model.CheckResult{})
 	if err != nil {
 		return nil, err
 	}

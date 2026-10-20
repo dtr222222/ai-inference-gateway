@@ -22,6 +22,7 @@ func RecoveryMiddleware() gin.HandlerFunc {
 					"client_ip", c.ClientIP(),
 				)
 				// 客户端输出
+				// 这里如果接收到了 panic, 下面这个函数会将本次的状态码变成 500，使得下面的中间件也能记录到正确的值
 				c.AbortWithStatusJSON(http.StatusInternalServerError,
 					gin.H{"error": "internal server error"})
 			}

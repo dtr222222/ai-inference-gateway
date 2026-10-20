@@ -47,8 +47,12 @@ func main() {
 		return
 	}
 
+	// Root context canceled on SIGINT, used to trigger graceful shutdown.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	// 初始化数据库
-	db, err := repository.InitDB(cfg.DSN)
+	db, err := repository.InitDB(cfg.DSN, ctx)
 	if err != nil {
 		slog.Error("failed to initialize database", "error", err)
 		os.Exit(1)
@@ -57,19 +61,16 @@ func main() {
 	// 实例化仓库
 	repo := repository.NewCheckRepository(db)
 
-	// Root context canceled on SIGINT, used to trigger graceful shutdown.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
 	// 设置成发布模式，减少调试信息输出
 	gin.SetMode(gin.ReleaseMode)
 	// gin 框架
 	router := gin.New()
 	// 加入中间件
-	// Order matters: recovery -> structured logging -> metrics.
-	router.Use(middleware.RecoveryMiddleware())
+	// 注意这里的 recovery 中间件要放在最后面，
+	// 同时 slog 和 metrics 的中间件在 next 后要加 defer func(), 确保日志记录能被打印出来
 	router.Use(middleware.SlogMiddleware())
 	router.Use(middleware.MetricsMiddleware())
+	router.Use(middleware.RecoveryMiddleware())
 	handler := &h.Handler{Cfg: cfg, CheckRepo: repo}
 	// Background batcher aggregates async results before flushing to storage.
 	go h.StartBatcher()
