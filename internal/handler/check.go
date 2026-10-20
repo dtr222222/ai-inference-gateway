@@ -1,11 +1,11 @@
 package handler
 
 import (
+	"ai-inference-gateway/internal/checker"
+	"ai-inference-gateway/internal/config"
+	"ai-inference-gateway/internal/model"
+	"ai-inference-gateway/internal/repository"
 	"log/slog"
-	"my-checker/internal/checker"
-	"my-checker/internal/config"
-	"my-checker/internal/model"
-	"my-checker/internal/repository"
 	"net/http"
 	"strconv"
 	"time"

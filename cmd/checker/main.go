@@ -1,14 +1,14 @@
 package main
 
 import (
+	"ai-inference-gateway/internal/config"
+	h "ai-inference-gateway/internal/handler"
+	"ai-inference-gateway/internal/metrics"
+	"ai-inference-gateway/internal/middleware"
+	"ai-inference-gateway/internal/repository"
 	"context"
 	"errors"
 	"log/slog"
-	"my-checker/internal/config"
-	h "my-checker/internal/handler"
-	"my-checker/internal/metrics"
-	"my-checker/internal/middleware"
-	"my-checker/internal/repository"
 	"net/http"
 	"os"
 	"os/signal"

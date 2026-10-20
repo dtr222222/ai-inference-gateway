@@ -1,8 +1,8 @@
 package repository
 
 import (
+	"ai-inference-gateway/internal/model"
 	"context"
-	"my-checker/internal/model"
 
 	"gorm.io/gorm"
 )

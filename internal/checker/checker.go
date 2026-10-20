@@ -1,9 +1,9 @@
 package checker
 
 import (
+	"ai-inference-gateway/internal/config"
 	"context"
 	"errors"
-	"my-checker/internal/config"
 	"net/http"
 	"sync"
 	"time"

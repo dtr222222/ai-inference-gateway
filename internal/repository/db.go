@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"my-checker/internal/model"
+	"ai-inference-gateway/internal/model"
 	"time"
 
 	"gorm.io/driver/mysql"

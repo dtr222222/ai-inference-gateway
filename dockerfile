@@ -3,6 +3,9 @@ FROM golang:1.27-alpine AS builder
 
 WORKDIR /app
 
+# 设置 Go 模块代理为国内镜像
+ENV GOPROXY=https://goproxy.cn,direct
+
 # go.mod 相当于指明了依赖的环境
 # go.sum 相当于加了防伪码（哈希值）
 COPY go.mod go.sum ./

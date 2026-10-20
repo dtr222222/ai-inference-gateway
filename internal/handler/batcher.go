@@ -1,12 +1,12 @@
 package handler
 
 import (
+	"ai-inference-gateway/internal/metrics"
 	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
-	"my-checker/internal/metrics"
 	"net/http"
 	"time"
 )

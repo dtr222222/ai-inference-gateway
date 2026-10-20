@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"my-checker/internal/metrics"
+	"ai-inference-gateway/internal/metrics"
 	"strconv"
 	"time"
 
