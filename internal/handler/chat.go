@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"ai-inference-gateway/internal/metrics"
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,22 +32,33 @@ func ChatHandler(c *gin.Context) {
 		return
 	}
 
-	job := Job{Prompt: myRequest.Prompt, ResultChan: make(chan string, 1)}
-	// 这里如果队列满了会出现问题，这一步会一直卡在这里，执行不到客户端主动断开连接的语句
-	go func() { JobQueue <- job }()
+	job := Job{Prompt: myRequest.Prompt, ResultChan: make(chan string, 1), Ctx: c.Request.Context()}
 
 	select {
 	case JobQueue <- job:
+		metrics.AddQueueSize()
 	case <-c.Request.Context().Done():
 		slog.Warn("client disconnected before enqueue")
+		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
 
-	// 这里还有 bug，孤儿请求白白烧硬件
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
 	select {
 	case reply := <-job.ResultChan:
+		metrics.RecordJobOutcome("delivered")
 		c.JSON(http.StatusOK, gin.H{"reply": reply})
-	case <-c.Request.Context().Done():
-		slog.Warn("client disconnected while waiting for result")
+	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			slog.Warn("Timeout")
+			metrics.RecordJobOutcome("timeout")
+			c.AbortWithStatus(http.StatusGatewayTimeout)
+		} else if errors.Is(c.Request.Context().Err(), context.Canceled) {
+			slog.Warn("client disconnected while waiting for result")
+			metrics.RecordJobOutcome("cancelled")
+			c.AbortWithStatus(499)
+		}
 	}
 }

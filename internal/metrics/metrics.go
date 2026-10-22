@@ -5,12 +5,12 @@ import (
 )
 
 var (
-	httpRequestsTotal   *prometheus.CounterVec   // 带标签的计数器
+	httpRequestsTotal   *prometheus.CounterVec // 带标签的计数器
+	jobOutcome          *prometheus.CounterVec
 	httpRequestDuration *prometheus.HistogramVec // 带标签的直方图
 	batchQueueSize      prometheus.Gauge
 	batchSize           prometheus.Histogram
-	// TODO: add jobOutcome *prometheus.CounterVec with label "result"
-	// (delivered / orphaned / cancelled) to expose orphaned requests.
+	// (delivered / orphaned / canceled) to expose orphaned requests.
 )
 
 // Init 小写的 init 函数会在程序跑起来之前隐式调用
@@ -31,6 +31,12 @@ func Init() {
 	// /metrics 接口被请求时，promhttp.Handler() 会去遍历这个注册表，把里面所有已注册的指标序列化成文本格式，返回给 Prometheus。
 	// 没注册的指标，/metrics 里就看不到。
 	prometheus.MustRegister(httpRequestsTotal)
+
+	jobOutcome = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "job_outcome",
+		Help: "the outcome of job"},
+		[]string{"outcome"})
+	prometheus.MustRegister(jobOutcome)
 
 	httpRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "http_request_duration_seconds",
@@ -69,12 +75,20 @@ func RecordRequest(method, path, status string) {
 	httpRequestsTotal.WithLabelValues(method, path, status).Inc() // 计数 +1，因为只是用来计数的
 }
 
+func RecordJobOutcome(outcome string) {
+	jobOutcome.WithLabelValues(outcome).Inc()
+}
+
 func ObserveDuration(method, path string, duration float64) {
 	httpRequestDuration.WithLabelValues(method, path).Observe(duration) // Observe 函数负责记录 duration 的值
 }
 
-func SetQueueSize(size int) {
-	batchQueueSize.Set(float64(size))
+func AddQueueSize() {
+	batchQueueSize.Inc()
+}
+
+func SubQueueSize(size int) {
+	batchQueueSize.Sub(float64(size))
 }
 
 func ObserveBatchSize(size int) {

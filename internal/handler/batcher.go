@@ -16,6 +16,7 @@ import (
 type Job struct {
 	Prompt     string
 	ResultChan chan string
+	Ctx        context.Context
 }
 
 // JobQueue 定义全局缓冲通道
@@ -34,6 +35,17 @@ type BatchPyResponse struct {
 
 func processBatch(batch []Job) {
 	metrics.ObserveBatchSize(len(batch))
+
+	// 这里先过滤一下 batch，把没人要的 job 剔除
+	var activeJobs []Job
+	for _, job := range batch {
+		if job.Ctx.Err() != nil {
+			job.ResultChan <- "error: canceled"
+		} else {
+			activeJobs = append(activeJobs, job)
+		}
+	}
+
 	// 定义失败函数，简化错误处理
 	// notifyFail broadcasts the same error to every job in the batch and logs it once.
 	notifyFail := func(errMsg string, err error) {
@@ -42,15 +54,18 @@ func processBatch(batch []Job) {
 		} else {
 			slog.Error(errMsg)
 		}
-		for _, job := range batch {
+		for _, job := range activeJobs {
 			job.ResultChan <- "error: " + errMsg
 		}
 	}
-
 	// 把字符串都传到 batchRequest 里
 	var batchRequest BatchPyRequest
-	for _, job := range batch {
+	for _, job := range activeJobs {
 		batchRequest.Prompts = append(batchRequest.Prompts, job.Prompt)
+	}
+
+	if len(batchRequest.Prompts) == 0 {
+		return
 	}
 
 	// JSON 化
@@ -97,7 +112,11 @@ func processBatch(batch []Job) {
 		return
 	}
 
-	for i, job := range batch {
+	for i, job := range activeJobs {
+		if job.Ctx.Err() != nil {
+			metrics.RecordJobOutcome("orphaned")
+			continue
+		}
 		if i < len(batchResponse.Results) {
 			job.ResultChan <- batchResponse.Results[i]
 		} else {
@@ -113,7 +132,7 @@ func StartBatcher() {
 			// 提取 batch
 			var batch []Job
 			batchSize := len(JobQueue)
-			metrics.SetQueueSize(batchSize)
+
 			// 这里不能写 for job := range JobQueue
 			// 因为直到 JobQueue 通道被关闭后，循环才会结束，会一直被堵塞
 			for range batchSize {
@@ -122,6 +141,7 @@ func StartBatcher() {
 
 			// 如果 batch > 0,调用独立函数来处理，防止 defer 在循环里无法退出
 			if len(batch) > 0 {
+				metrics.SubQueueSize(len(batch))
 				processBatch(batch)
 			}
 		}
