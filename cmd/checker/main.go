@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -48,7 +50,7 @@ func main() {
 	}
 
 	// Root context canceled on SIGINT, used to trigger graceful shutdown.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// 初始化数据库
@@ -56,6 +58,10 @@ func main() {
 	if err != nil {
 		slog.Error("failed to initialize database", "error", err)
 		os.Exit(1)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+
 	}
 
 	// 实例化仓库
@@ -73,7 +79,10 @@ func main() {
 	router.Use(middleware.RecoveryMiddleware())
 	handler := &h.Handler{Cfg: cfg, CheckRepo: repo}
 	// Background batcher aggregates async results before flushing to storage.
-	go h.StartBatcher()
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		h.StartBatcher(ctx)
+	})
 
 	{
 		v1 := router.Group("/api/v1")
@@ -105,10 +114,23 @@ func main() {
 	slog.Info("shutting down gracefully, press Ctrl+C again to force")
 
 	// Give in-flight requests up to 5 seconds to finish.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err = srv.Shutdown(shutdownCtx); err != nil {
+	shutdownHttpCtx, cancelHttp := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelHttp()
+	if err = srv.Shutdown(shutdownHttpCtx); err != nil {
 		slog.Info("server forced to shutdown", "error", err)
 	}
+	shutdownBatchCtx, cancelBatch := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelBatch()
+	sign := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(sign)
+	}()
+
+	select {
+	case <-shutdownBatchCtx.Done():
+	case <-sign:
+	}
+	sqlDB.Close()
 	slog.Info("server exiting")
 }

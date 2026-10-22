@@ -39,9 +39,9 @@ func InitDB(dsn string, ctx context.Context) (*gorm.DB, error) {
 	// 连接的最长存活时间
 	sqlDB.SetConnMaxLifetime(time.Hour)
 	// 限制最大并发连接数
-	sqlDB.SetMaxOpenConns(100)
+	sqlDB.SetMaxOpenConns(20)
 	// 限制最大空闲连接处
-	sqlDB.SetMaxIdleConns(100)
+	sqlDB.SetMaxIdleConns(10)
 
 	return db, nil
 }
