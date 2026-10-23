@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -22,8 +23,13 @@ var Client = &http.Client{Transport: tr}
 type Job struct {
 	Prompt     string
 	RequestID  string
-	ResultChan chan string
+	ResultChan chan JobResult
 	Ctx        context.Context
+}
+
+type JobResult struct {
+	Reply string
+	Err   error
 }
 
 // JobQueue 定义全局缓冲通道
@@ -49,7 +55,7 @@ func processBatch(batch []Job) {
 	var activeJobs []Job
 	for _, job := range batch {
 		if job.Ctx.Err() != nil {
-			job.ResultChan <- "error: canceled"
+			job.ResultChan <- JobResult{"error: canceled", job.Ctx.Err()}
 		} else {
 			activeJobs = append(activeJobs, job)
 		}
@@ -64,7 +70,7 @@ func processBatch(batch []Job) {
 			slog.Error(errMsg)
 		}
 		for _, job := range activeJobs {
-			job.ResultChan <- "error: " + errMsg
+			job.ResultChan <- JobResult{"error: " + errMsg, errors.New(errMsg)}
 		}
 	}
 	// 把字符串都传到 batchRequest 里
@@ -87,7 +93,7 @@ func processBatch(batch []Job) {
 
 	buffer := bytes.NewBuffer(buf)
 	// 10s is the per-batch RPC budget; it must stay below the caller's HTTP timeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	//  不要在循环里使用，而是单独开一个函数
 	defer cancel()
 
@@ -135,21 +141,24 @@ func processBatch(batch []Job) {
 		}
 
 		if i >= len(batchResponse.RequestIDs) {
-			job.ResultChan <- "error: request id miss"
+			errMsg := "request id miss"
+			job.ResultChan <- JobResult{"error: " + errMsg, errors.New(errMsg)}
 			slog.Error("request id miss")
 			continue
 		}
 
 		if batchResponse.RequestIDs[i] != job.RequestID {
-			job.ResultChan <- "error: request id mismatch"
-			slog.Error("request id mismatch")
+			errMsg := "request id mismatch"
+			job.ResultChan <- JobResult{"error: " + errMsg, errors.New(errMsg)}
+			slog.Error("request id mismatch", "expected", job.RequestID, "got", batchResponse.RequestIDs[i])
 			continue
 		}
 
 		if i < len(batchResponse.Results) {
-			job.ResultChan <- batchResponse.Results[i]
+			job.ResultChan <- JobResult{batchResponse.Results[i], nil}
 		} else {
-			job.ResultChan <- "error: no valid result returned"
+			errMsg := "no valid result returned"
+			job.ResultChan <- JobResult{"error: " + errMsg, errors.New(errMsg)}
 		}
 	}
 }

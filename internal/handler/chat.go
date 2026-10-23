@@ -38,7 +38,7 @@ func ChatHandler(c *gin.Context) {
 		ReqID = rawReqID.(string)
 	}
 
-	job := Job{Prompt: myRequest.Prompt, RequestID: ReqID, ResultChan: make(chan string, 1), Ctx: c.Request.Context()}
+	job := Job{Prompt: myRequest.Prompt, RequestID: ReqID, ResultChan: make(chan JobResult, 1), Ctx: c.Request.Context()}
 
 	select {
 	case JobQueue <- job:
@@ -49,13 +49,19 @@ func ChatHandler(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 	defer cancel()
 
 	select {
 	case reply := <-job.ResultChan:
-		metrics.RecordJobOutcome("delivered")
-		c.JSON(http.StatusOK, gin.H{"reply": reply})
+		if reply.Err != nil {
+			metrics.RecordJobOutcome("failed")
+			slog.Error("wrong error", "reply_error", reply.Err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "internal server error"})
+		} else {
+			metrics.RecordJobOutcome("delivered")
+			c.JSON(http.StatusOK, gin.H{"reply": reply.Reply})
+		}
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			slog.Warn("Timeout")

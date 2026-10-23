@@ -96,7 +96,6 @@ func main() {
 	// graceful shutdown
 	srv := &http.Server{
 		// 这个地方真正决定了开放哪个端口
-		// TODO: read the listen address from config instead of hardcoding it.
 		Addr:              ":8080",
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,

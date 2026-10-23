@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	totalRequests := 10
+	totalRequests := 4
 	url := "http://localhost:8080/api/v1/chat"
 	var wg sync.WaitGroup
 	jsonPrompt := []byte(`{"prompt": "Task"}`)
