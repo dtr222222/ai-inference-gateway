@@ -12,8 +12,6 @@ func MetricsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 
-		c.Next()
-
 		defer func() {
 			// path := c.Request.URL.Path 这里不能这么写
 			// c.Request.URL.Path 是客户端原本发来的字符串
@@ -44,5 +42,7 @@ func MetricsMiddleware() gin.HandlerFunc {
 			// (Contrast with SlogMiddleware which logs latency.String() -- inconsistent.)
 			metrics.ObserveDuration(method, path, latency.Seconds())
 		}()
+
+		c.Next()
 	}
 }

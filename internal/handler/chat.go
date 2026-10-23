@@ -32,7 +32,13 @@ func ChatHandler(c *gin.Context) {
 		return
 	}
 
-	job := Job{Prompt: myRequest.Prompt, ResultChan: make(chan string, 1), Ctx: c.Request.Context()}
+	rawReqID, exist := c.Get("req_id")
+	var ReqID string
+	if exist {
+		ReqID = rawReqID.(string)
+	}
+
+	job := Job{Prompt: myRequest.Prompt, RequestID: ReqID, ResultChan: make(chan string, 1), Ctx: c.Request.Context()}
 
 	select {
 	case JobQueue <- job:

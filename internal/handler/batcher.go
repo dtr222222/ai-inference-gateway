@@ -21,6 +21,7 @@ var Client = &http.Client{Transport: tr}
 // Job represents a single prompt request and the channel its result is written back to.
 type Job struct {
 	Prompt     string
+	RequestID  string
 	ResultChan chan string
 	Ctx        context.Context
 }
@@ -31,12 +32,14 @@ var JobQueue = make(chan Job, 1000)
 
 // BatchPyRequest 批量请求结构体
 type BatchPyRequest struct {
-	Prompts []string `json:"prompts"`
+	Prompts    []string `json:"prompts"`
+	RequestIDs []string `json:"request_ids"`
 }
 
 // BatchPyResponse 批量响应结构体
 type BatchPyResponse struct {
-	Results []string `json:"results"`
+	Results    []string `json:"results"`
+	RequestIDs []string `json:"request_ids"`
 }
 
 func processBatch(batch []Job) {
@@ -68,6 +71,7 @@ func processBatch(batch []Job) {
 	var batchRequest BatchPyRequest
 	for _, job := range activeJobs {
 		batchRequest.Prompts = append(batchRequest.Prompts, job.Prompt)
+		batchRequest.RequestIDs = append(batchRequest.RequestIDs, job.RequestID)
 	}
 
 	if len(batchRequest.Prompts) == 0 {
@@ -124,10 +128,24 @@ func processBatch(batch []Job) {
 	}
 
 	for i, job := range activeJobs {
+
 		if job.Ctx.Err() != nil {
 			metrics.RecordJobOutcome("orphaned")
 			continue
 		}
+
+		if i >= len(batchResponse.RequestIDs) {
+			job.ResultChan <- "error: request id miss"
+			slog.Error("request id miss")
+			continue
+		}
+
+		if batchResponse.RequestIDs[i] != job.RequestID {
+			job.ResultChan <- "error: request id mismatch"
+			slog.Error("request id mismatch")
+			continue
+		}
+
 		if i < len(batchResponse.Results) {
 			job.ResultChan <- batchResponse.Results[i]
 		} else {
@@ -142,7 +160,11 @@ Loop:
 	for {
 		select {
 		case job := <-JobQueue:
+
 			batch = append(batch, job)
+			if len(batch) >= 50 {
+				break Loop
+			}
 		default:
 			break Loop
 		}
