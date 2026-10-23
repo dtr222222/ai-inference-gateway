@@ -5,13 +5,12 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker)](https://www.docker.com/)
 [![Prometheus](https://img.shields.io/badge/Monitoring-Prometheus-E6522C?style=flat-square&logo=prometheus)](https://prometheus.io/)
 
-一个基于 Go (Gin) 与 Python (FastAPI) 的**异构大模型推理网关**。通过高并发控制、动态批处理（Dynamic Batching）与全链路可观测性，为底层脆弱的 LLM 模型提供企业级的流量调度与保护。
+基于 Go (Gin) 与 Python (FastAPI) 的高性能异构大模型推理网关。内置**动态批处理（Dynamic Batching）**、**请求取消传播**、**全链路分布式追踪**与**细粒度可观测性**，为底层脆弱的 LLM 服务提供企业级的流量调度与安全兜底。
 
 ## 📖 目录
 
 - [核心特性](#-核心特性)
 - [系统架构](#-系统架构)
-- [技术栈](#-技术栈)
 - [快速开始](#-快速开始)
 - [API 文档](#-api-文档)
 - [工程设计亮点](#-工程设计亮点)
@@ -20,12 +19,12 @@
 
 ## ✨ 核心特性
 
-- **异构微服务架构**：Go 作为高并发控制面（网关），Python 作为纯数据面（模型推理），通过 HTTP 内部网络高效通信。
-- **动态批处理 (Dynamic Batching)**：网关在内存中维护请求队列，以 `100ms` 为时间窗口，将并发请求打包成 Batch 一次性发送给模型，大幅提升后端吞吐量。
-- **并发保护与排队**：利用带缓冲的 Channel 实现信号量，防止海量请求瞬间压垮模型；基于 `context` 实现精确的排队超时与客户端断连感知。
-- **全链路可观测性**：集成 `Prometheus` 与 `Grafana`，实时监控网关 QPS、请求延迟分布（P95/P99）、当前排队积压数及批处理大小分布。
-- **优雅启停**：结合 `signal.NotifyContext` 与 `http.Server.Shutdown`，确保滚动更新时不丢失任何正在处理的请求。
-- **容器化编排**：基于 Docker Compose 一键拉起 Go 网关、Python 模型、MySQL、Prometheus、Grafana 五件套。
+- **异构微服务架构**：Go 作为高并发控制面（网关），Python 作为纯数据面（模型推理），通过内部 HTTP 网络高效通信。
+- **动态批处理 (Dynamic Batching)**：网关在内存中维护请求队列，以 `100ms` 为时间窗口，将并发请求打包成 Batch（单批上限 50）一次性发送给模型，大幅提升后端吞吐量，防止模型 OOM。
+- **全链路分布式追踪**：基于 UUID 实现跨语言追踪。Go 网关生成 `Request-ID`，随批量请求透传至 Python，并在结果返回时进行**严格的反向 ID 对账**，确保结果零错乱。
+- **请求取消与级联传播**：基于 `context` 实现。当客户端断开连接时，取消信号会瞬间穿透网关层，阻止已排队的废弃任务发往模型，有效避免算力浪费。
+- **高可用与优雅停机**：结合 `signal.NotifyContext` 监听 `SIGTERM`，在 K8s 滚动更新时，先切断新流量，再独立分配超时预算给 HTTP 服务与后台批处理队列，确保内存中的任务安全落地（Zero Data Loss）。
+- **细粒度可观测性**：集成 Prometheus 与 Grafana，监控网关 QPS、延迟分布（P95/P99）、当前排队积压数、批处理大小，以及细粒度的 `job_outcome`（delivered / timeout / cancelled / orphaned / failed）。
 
 ---
 
@@ -33,46 +32,50 @@
 
 ```mermaid
 graph TD
-    Client[客户端 / Postman] -->|HTTP POST /api/v1/chat| GoGateway(Go Gateway / Gin)
-    
-    subgraph Go Gateway 内部机制
-        GoGateway -->|1. 解析请求| Semaphore[并发信号量 / Channel]
-        Semaphore -->|2. 放入队列| JobQueue((Job Queue))
-        JobQueue -->|3. 100ms 攒批| Batcher[Batcher 引擎]
-    end
-    
-    Batcher -->|4. HTTP POST 批量请求| PythonLLM[Python Service / FastAPI]
-    
-    subgraph Python Service
-        PythonLLM -->|加载| TinyGPT2((Tiny-GPT2 模型))
-    end
-    
-    PythonLLM -->|5. 返回 Batch 结果| Batcher
-    Batcher -->|6. 分发到专属 ResultChan| Semaphore
-    Semaphore -->|7. 响应| Client
+    Client(["客户端 Client"])
 
-    subgraph 可观测性系统
-        GoGateway -.->|/metrics| Prometheus
-        Prometheus -.->|数据源| Grafana
+    subgraph GoGateway ["Go 网关 (Gin 控制面)"]
+        Middleware["中间件: UUID生成 / Prometheus监控 / 日志"]
+        ChatHandler["ChatHandler: 并发等待 / 接收 ResultChan"]
+        JobQueue[("JobQueue: 容量上限 1000")]
+        Batcher["StartBatcher: Ticker 100ms 攒批"]
+        ProcessBatch["ProcessBatch: HTTP Client / 严格反向对账"]
+
+        Middleware --> ChatHandler
+        ChatHandler -->|"1. 投递 Job"| JobQueue
+        JobQueue -->|"2. 非阻塞拉取 Batch"| Batcher
+        Batcher --> ProcessBatch
     end
+
+    subgraph PythonService ["Python 推理端 (FastAPI)"]
+        FastAPI["FastAPI 服务"]
+        Model(("HuggingFace 模型"))
+        
+        FastAPI -->|"批量推理"| Model
+    end
+
+    subgraph Observability ["可观测性"]
+        Prometheus[("Prometheus")]
+        Grafana["Grafana"]
+        
+        Prometheus -.->|"数据源"| Grafana
+    end
+
+    %% 跨服务通信
+    Client -->|"HTTP POST /api/v1/chat"| Middleware
+    ProcessBatch -->|"3. 批量请求 (带 RequestIDs)"| FastAPI
+    FastAPI -->|"4. 返回结果 & RequestIDs"| ProcessBatch
+    ProcessBatch -->|"5. 结果塞回 ResultChan"| ChatHandler
+    ChatHandler -->|"6. HTTP 响应"| Client
+    Middleware -.->|"/metrics"| Prometheus
 ```
-
----
-
-## 💻 技术栈
-
-- **控制面 (Control Plane)**：Go, Gin, Go Channels, Context, `log/slog`
-- **数据面 (Data Plane)**：Python, FastAPI, HuggingFace `transformers`, PyTorch
-- **基础设施 (Infrastructure)**：Docker, Docker Compose, MySQL (GORM)
-- **可观测性 (Observability)**：Prometheus (client_golang), Grafana
 
 ---
 
 ## 🚀 快速开始
 
 ### 前置要求
-- 已安装 Docker 与 Docker Compose
-- 至少 4GB 可用内存（由于包含 PyTorch 模型与监控组件）
+- Docker 与 Docker Compose (至少分配 4GB 内存)
 
 ### 一键启动
 
@@ -81,13 +84,12 @@ graph TD
 git clone https://github.com/your-username/ai-inference-gateway.git
 cd ai-inference-gateway
 
-# 启动所有微服务（后台运行）
+# 后台构建并启动所有服务
 docker compose up -d --build
 ```
 
-服务启动后，各组件的访问地址如下：
+启动后，各组件访问地址：
 - **Go 网关 API**: `http://localhost:8080`
-- **Python 模型服务 (内部)**: `http://python_service:8000`
 - **Prometheus 面板**: `http://localhost:9090`
 - **Grafana 监控大屏**: `http://localhost:3000` (账号/密码: `admin`)
 
@@ -109,36 +111,30 @@ docker compose up -d --build
 **Response (200 OK):**
 ```json
 {
-  "reply": "Hello, I am a Go developer. I am currently working on..."
+  "reply": "Hello, I am a Go developer and I am working on an AI gateway..."
 }
 ```
 
 **错误响应:**
-- `400 Bad Request`: 请求 JSON 格式错误。
-- `429 Too Many Requests`: 网关排队已满，请求被拒绝（触发限流）。
-- `502 Bad Gateway`: Python 模型服务不可用。
-- `504 Gateway Timeout`: 模型处理超时。
+- `400 Bad Request`: 请求 JSON 格式错误或客户端主动断开。
+- `502 Bad Gateway`: 下游模型服务异常或跨语言 ID 对账失败。
+- `504 Gateway Timeout`: 模型处理超时（触发网关熔断）。
 
 ---
 
-## 🧠 工程设计亮点
+## 🧠 工程设计亮点（面试核心）
 
-### 1. 为什么使用动态批处理 (Dynamic Batching)？
-直接对模型发起并发请求会导致极高的上下文切换开销和显存/CPU 碎片化。本系统在 Go 网关引入了 `Batcher` 引擎：
-- 利用 `time.Ticker` 每 `100ms` 触发一次。
-- 收集这段时间内 `JobQueue` 里的所有请求，将 `[]string` 打包成一个矩阵。
-- Python 端的 HuggingFace `pipeline` 原生支持数组输入，利用 CPU/GPU 的并行计算能力，将原本需要 N 次的推理合并为 1 次，**大幅提升了系统的吞吐上限**。
+### 1. 为什么使用动态批处理？
+直接对模型发起并发请求会导致极高的上下文切换开销和显存/CPU 碎片化。本项目在 Go 网关层利用 `select` 和 `time.Ticker` 实现了非阻塞的攒批引擎。每 `100ms` 将排队的请求拼装成数组发送给 Python，利用 FastAPI 的矩阵运算能力大幅提升吞吐。
 
-### 2. 并发控制与防雪崩
-- **排队机制**：网关通过带缓冲的 Channel 保护后端，若 `JobQueue` 达到上限，或者请求在队列中等待超时（`select` + `time.After`），直接返回 `429`，防止无限排队耗尽服务器内存。
-- **上下文级联取消**：如果客户端在等待期间断开连接（`c.Request.Context().Done()`），网关会立即释放该请求占用的资源，并停止后续的模型调用。
+### 2. 跨语言链路的“反向对账”
+因为模型是批量处理的，一旦网络乱序或模型返回漏包，结果就会张冠李戴。本项目在 `processBatch` 中实现了严格的 `RequestID` 校验。若 Python 返回的 ID 与 Go 侧的 ID 不匹配，网关会抛弃该结果，并以 `502` 快速失败，杜绝脏数据返给用户。
 
-### 3. 可观测性大屏
-在 Grafana 中，可以直观地看到以下核心指标：
-- `http_requests_total`: 接口 QPS 与错误率趋势。
-- `http_request_duration_seconds`: P95/P99 响应延迟。
-- `batch_queue_size`: 网关内部积压的请求数（反映系统拥堵情况）。
-- `batch_size`: 每次批处理的请求数量分布。
+### 3. 取消传播（Cancellation Propagation）
+如果用户在等待期间关闭了网页，Go 网关的 `c.Request.Context().Done()` 会被触发。系统会在将任务打包发给模型前进行拦截（过滤掉已取消的请求）。如果模型已经算完，网关也会检测其 Context，直接将结果标记为 `orphaned` 丢弃，极致节省 GPU/CPU 算力。
+
+### 4. 优雅停机设计
+K8s 销毁 Pod 时发送 `SIGTERM`。网关捕获信号后，首先执行 `srv.Shutdown` 切断新流量；随后给后台的 `StartBatcher` 派发最后一次“抢救任务”，并利用独立的 Context 预算（独立于 HTTP 超时）等待其处理完毕，最后安全关闭数据库连接池。
 
 ---
 
