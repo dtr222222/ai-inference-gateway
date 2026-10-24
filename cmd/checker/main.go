@@ -61,7 +61,8 @@ func main() {
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-
+		slog.Error("failed to initialize database", "error", err)
+		os.Exit(1)
 	}
 
 	// 实例化仓库
