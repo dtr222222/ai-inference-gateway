@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var URL = "http://python_service:8000/prompt"
+
 // 定义全局客户端，避免多次创建和销毁，增加开销、
 var tr = &http.Transport{
 	MaxIdleConnsPerHost: 10,
@@ -97,7 +99,7 @@ func processBatch(batch []Job) {
 	//  不要在循环里使用，而是单独开一个函数
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "http://python_service:8000/prompt", buffer)
+	req, err := http.NewRequestWithContext(ctx, "POST", URL, buffer)
 	if err != nil {
 		notifyFail("failed to build upstream request", err)
 		return
