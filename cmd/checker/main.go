@@ -66,7 +66,7 @@ func main() {
 	}
 
 	// 实例化仓库
-	repo := repository.NewCheckRepository(db)
+	// repo := repository.NewCheckRepository(db)
 
 	// 设置成发布模式，减少调试信息输出
 	gin.SetMode(gin.ReleaseMode)
@@ -78,7 +78,7 @@ func main() {
 	router.Use(middleware.SlogMiddleware())
 	router.Use(middleware.MetricsMiddleware())
 	router.Use(middleware.RecoveryMiddleware())
-	handler := &h.Handler{Cfg: cfg, CheckRepo: repo}
+	// handler := &h.Handler{Cfg: cfg, CheckRepo: repo}
 	// Background batcher aggregates async results before flushing to storage.
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -87,8 +87,8 @@ func main() {
 
 	{
 		v1 := router.Group("/api/v1")
-		v1.POST("/check", handler.CheckHandler)
-		v1.GET("/results", handler.GetResultsHandler)
+		// v1.POST("/check", handler.CheckHandler)
+		// v1.GET("/results", handler.GetResultsHandler)
 		v1.POST("/chat", h.ChatHandler)
 	}
 
