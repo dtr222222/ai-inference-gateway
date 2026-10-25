@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var URL = "http://python_service:8000/prompt"
+var URL = "http://python-service:8000/prompt"
 
 // 定义全局客户端，避免多次创建和销毁，增加开销、
 var tr = &http.Transport{

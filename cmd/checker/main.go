@@ -1,11 +1,9 @@
 package main
 
 import (
-	"ai-inference-gateway/internal/config"
 	h "ai-inference-gateway/internal/handler"
 	"ai-inference-gateway/internal/metrics"
 	"ai-inference-gateway/internal/middleware"
-	"ai-inference-gateway/internal/repository"
 	"context"
 	"errors"
 	"log/slog"
@@ -17,7 +15,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -34,36 +31,36 @@ func main() {
 	// Init metrics before any business logic so all code paths can record them.
 	metrics.Init()
 
-	err := godotenv.Load()
-	if errors.Is(err, os.ErrNotExist) {
-		// A missing .env is tolerated: in containers/prod env vars are injected externally.
-		slog.Warn(".env file not found", "error", err)
-	} else if err != nil {
-		slog.Error("failed to load .env file", "error", err)
-		return
-	}
+	//err := godotenv.Load()
+	//if errors.Is(err, os.ErrNotExist) {
+	//	// A missing .env is tolerated: in containers/prod env vars are injected externally.
+	//	slog.Warn(".env file not found", "error", err)
+	//} else if err != nil {
+	//	slog.Error("failed to load .env file", "error", err)
+	//	return
+	//}
 
-	cfg, err := config.Load()
-	if err != nil {
-		slog.Error("failed to load config", "error", err)
-		return
-	}
+	//cfg, err := config.Load()
+	//if err != nil {
+	//	slog.Error("failed to load config", "error", err)
+	//	return
+	//}
 
 	// Root context canceled on SIGINT, used to trigger graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 初始化数据库
-	db, err := repository.InitDB(cfg.DSN, ctx)
-	if err != nil {
-		slog.Error("failed to initialize database", "error", err)
-		os.Exit(1)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		slog.Error("failed to initialize database", "error", err)
-		os.Exit(1)
-	}
+	// 初始化数据库（已废除）
+	//db, err := repository.InitDB(cfg.DSN, ctx)
+	//if err != nil {
+	//	slog.Error("failed to initialize database", "error", err)
+	//	os.Exit(1)
+	//}
+	//sqlDB, err := db.DB()
+	//if err != nil {
+	//	slog.Error("failed to initialize database", "error", err)
+	//	os.Exit(1)
+	//}
 
 	// 实例化仓库
 	// repo := repository.NewCheckRepository(db)
@@ -116,7 +113,7 @@ func main() {
 	// Give in-flight requests up to 5 seconds to finish.
 	shutdownHttpCtx, cancelHttp := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelHttp()
-	if err = srv.Shutdown(shutdownHttpCtx); err != nil {
+	if err := srv.Shutdown(shutdownHttpCtx); err != nil {
 		slog.Info("server forced to shutdown", "error", err)
 	}
 	shutdownBatchCtx, cancelBatch := context.WithTimeout(context.Background(), 3*time.Second)
@@ -131,6 +128,6 @@ func main() {
 	case <-shutdownBatchCtx.Done():
 	case <-sign:
 	}
-	sqlDB.Close()
+	// sqlDB.Close()
 	slog.Info("server exiting")
 }
