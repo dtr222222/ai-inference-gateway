@@ -9,6 +9,7 @@ import (
 	"testing"
 )
 
+// 要写一个 handler 函数
 func writeJson(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"results":["fake"], "request_ids":["fake-id"]}`))
@@ -23,6 +24,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// 写这个测试真是令我头疼
 func TestProcessBatchIDMismatch(t *testing.T) {
 	var batch []Job
 	job := Job{
@@ -33,9 +35,11 @@ func TestProcessBatchIDMismatch(t *testing.T) {
 	}
 	batch = append(batch, job)
 
+	// 创建一个假的服务端
 	srv := httptest.NewServer(http.HandlerFunc(writeJson))
 	defer srv.Close()
 
+	// 覆盖真的 url，让 processBatch 函数访问假的 url
 	URL = srv.URL + "/prompt"
 	processBatch(batch)
 

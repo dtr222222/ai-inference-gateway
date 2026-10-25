@@ -1,0 +1,37 @@
+name: Go CI Pipeline
+
+# 触发
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 把代码拉取到虚拟机上
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 安装 Go 环境
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # 自动读取 go.mod 里的版本
+          go-version-file: 'go.mod'
+          cache: true
+
+      # 下载依赖
+      - name: Install dependencies
+        run: go mod download
+
+      # 跑单元测试
+      - name: Run Unit Tests
+        run: go test -v -race ./...
+
+      # 编译构建
+      - name: Build
+        run: go build -v ./...
