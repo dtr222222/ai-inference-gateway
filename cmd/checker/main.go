@@ -52,8 +52,8 @@ func main() {
 	})
 
 	{
-		v1 := router.Group("/api/v1")
-		v1.POST("/chat", h.ChatHandler)
+		api := router.Group("/api")
+		api.POST("/chat", h.ChatHandler)
 	}
 
 	// 注册 metrics 路由
@@ -97,4 +97,6 @@ func main() {
 	}
 
 	slog.Info("server exiting")
+	// 关闭空闲链接
+	h.Client.CloseIdleConnections()
 }

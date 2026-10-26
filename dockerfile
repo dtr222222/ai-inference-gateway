@@ -16,7 +16,7 @@ COPY . .
 
 # CGO_ENABLED=0 代表禁用 CGO，让编译文件不依赖于 C库，放到哪里都能跑
 # GOOS=linux 代表 目标的 OS 是 Linux，不然这里默认的是 Windows
-RUN CGO_ENABLED=0 GOOS=linux go build -o ai-probe ./cmd/checker
+RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/checker
 
 # 第二阶段（运行）
 FROM alpine:3.20
@@ -28,8 +28,8 @@ RUN apk add --no-cache tzdata ca-certificates
 WORKDIR /app
 
 # 从第一阶段中把二进制文件拷过来
-COPY --from=builder /app/ai-probe .
+COPY --from=builder /app/main .
 
 EXPOSE 8080
 
-CMD ["./ai-probe"]
+CMD ["./main"]
