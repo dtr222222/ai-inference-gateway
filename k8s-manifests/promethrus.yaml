@@ -1,0 +1,80 @@
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-app
+  template:
+    metadata:
+      labels:
+        app: prometheus-app
+    spec:
+      containers:
+        - name: prometheus-container
+          image: prom/prometheus:v3.15.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: prometheus-storage
+              mountPath: /prometheus
+            - name: prometheus-cfg
+              mountPath: /etc/prometheus/
+      volumes:
+        - name: prometheus-storage
+          persistentVolumeClaim:
+            claimName: prometheus-pvc
+        - name: prometheus-cfg
+          configMap:
+            name: prometheus-config
+
+
+---
+
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+spec:
+  selector:
+    app: prometheus-app
+  ports:
+    - port: 9090
+      targetPort: 9090
+  type: LoadBalancer
+
+---
+
+# PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+
+# ConfigMap
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+      - job_name: monitor
+        static_configs:
+          - targets: ["go-service:8080"]

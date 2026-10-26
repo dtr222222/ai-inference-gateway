@@ -31,39 +31,9 @@ func main() {
 	// Init metrics before any business logic so all code paths can record them.
 	metrics.Init()
 
-	//err := godotenv.Load()
-	//if errors.Is(err, os.ErrNotExist) {
-	//	// A missing .env is tolerated: in containers/prod env vars are injected externally.
-	//	slog.Warn(".env file not found", "error", err)
-	//} else if err != nil {
-	//	slog.Error("failed to load .env file", "error", err)
-	//	return
-	//}
-
-	//cfg, err := config.Load()
-	//if err != nil {
-	//	slog.Error("failed to load config", "error", err)
-	//	return
-	//}
-
 	// Root context canceled on SIGINT, used to trigger graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	// 初始化数据库（已废除）
-	//db, err := repository.InitDB(cfg.DSN, ctx)
-	//if err != nil {
-	//	slog.Error("failed to initialize database", "error", err)
-	//	os.Exit(1)
-	//}
-	//sqlDB, err := db.DB()
-	//if err != nil {
-	//	slog.Error("failed to initialize database", "error", err)
-	//	os.Exit(1)
-	//}
-
-	// 实例化仓库
-	// repo := repository.NewCheckRepository(db)
 
 	// 设置成发布模式，减少调试信息输出
 	gin.SetMode(gin.ReleaseMode)
@@ -75,7 +45,6 @@ func main() {
 	router.Use(middleware.SlogMiddleware())
 	router.Use(middleware.MetricsMiddleware())
 	router.Use(middleware.RecoveryMiddleware())
-	// handler := &h.Handler{Cfg: cfg, CheckRepo: repo}
 	// Background batcher aggregates async results before flushing to storage.
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -84,8 +53,6 @@ func main() {
 
 	{
 		v1 := router.Group("/api/v1")
-		// v1.POST("/check", handler.CheckHandler)
-		// v1.GET("/results", handler.GetResultsHandler)
 		v1.POST("/chat", h.ChatHandler)
 	}
 
@@ -128,6 +95,6 @@ func main() {
 	case <-shutdownBatchCtx.Done():
 	case <-sign:
 	}
-	// sqlDB.Close()
+
 	slog.Info("server exiting")
 }
