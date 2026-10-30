@@ -21,6 +21,11 @@ spec:
           env:
             - name: HF_ENDPOINT
               value: https://hf-mirror.com
+          resources:
+            limits:
+              cpu: 2000m
+            requests:
+              cpu: 200m
           startupProbe:
             httpGet:
               path: /docs
