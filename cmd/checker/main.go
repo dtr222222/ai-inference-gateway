@@ -11,12 +11,15 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+var isShuttingDown atomic.Bool
 
 func main() {
 	// 初始化 slog
@@ -42,12 +45,14 @@ func main() {
 	// 加入中间件
 	// 注意这里的 recovery 中间件要放在最后面，
 	// 同时 slog 和 metrics 的中间件在 next 后要加 defer func(), 确保日志记录能被打印出来
+	router.Use(middleware.ShutdownMiddleware(&isShuttingDown))
 	router.Use(middleware.SlogMiddleware())
 	router.Use(middleware.MetricsMiddleware())
 	router.Use(middleware.RecoveryMiddleware())
 	// Background batcher aggregates async results before flushing to storage.
 	var wg sync.WaitGroup
 	wg.Go(func() {
+		defer func() { recover() }()
 		h.StartBatcher(ctx)
 	})
 
@@ -56,8 +61,9 @@ func main() {
 		api.POST("/chat", h.ChatHandler)
 	}
 
-	// 注册 metrics 路由
+	// 注册 metrics 路由，prometheus 会定时来抓取数据
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	router.GET("/healthz", h.HealthHandler(&isShuttingDown))
 	// graceful shutdown
 	srv := &http.Server{
 		// 这个地方真正决定了开放哪个端口
@@ -74,6 +80,14 @@ func main() {
 
 	// Block until SIGINT is received.
 	<-ctx.Done()
+	isShuttingDown.Store(true)
+	time.Sleep(5 * time.Second)
+	// 这里睡 5s 的作用
+	// 收到 SIGTERM -> 状态变更为“正在停机”。
+	// 就绪探针下一次探测时，发现状态变了，返回 503。
+	// K8s 接收到 503，开始更新路由表。
+	// 在更新路由表延迟的几秒内，ShutdownMiddleware 拦截漏网之鱼（返回 503 让客户端重试）。
+	// Sleep 时间结束，端口安全关闭（服务彻底不通），存量请求处理完，Pod 销毁。
 
 	slog.Info("shutting down gracefully, press Ctrl+C again to force")
 

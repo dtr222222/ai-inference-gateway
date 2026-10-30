@@ -21,6 +21,23 @@ spec:
           env:
             - name: HF_ENDPOINT
               value: https://hf-mirror.com
+          startupProbe:
+            httpGet:
+              path: /docs
+              port: 8000
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /docs
+              port: 8000
+            periodSeconds: 30
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /docs
+              port: 8000
+            periodSeconds: 5
 
 ---
 

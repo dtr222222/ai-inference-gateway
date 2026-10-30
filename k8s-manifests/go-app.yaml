@@ -14,10 +14,23 @@ spec:
     spec:
       containers:
         - name: go-container
-          image: ai-gateway-go:v1
+          image: ai-gateway-go:v2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
 
 ---
 

@@ -40,18 +40,21 @@ func ChatHandler(c *gin.Context) {
 
 	job := Job{Prompt: myRequest.Prompt, RequestID: ReqID, ResultChan: make(chan JobResult, 1), Ctx: c.Request.Context()}
 
+	// 发送 job 给 jobQueue
 	select {
 	case JobQueue <- job:
 		metrics.AddQueueSize()
 	case <-c.Request.Context().Done():
 		slog.Warn("client disconnected before enqueue")
-		c.AbortWithStatus(http.StatusBadRequest)
+		c.AbortWithStatus(499) // 用来表示“在服务器发送响应之前，客户端主动关闭了连接”。
 		return
 	}
 
+	// 设置超时
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 	defer cancel()
 
+	// 收结果
 	select {
 	case reply := <-job.ResultChan:
 		if reply.Err != nil {
@@ -63,6 +66,7 @@ func ChatHandler(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"reply": reply.Reply})
 		}
 	case <-ctx.Done():
+		// ctx 是 c.Request.Context() 派生出来的，这里先要判断特异性，再判断通用性
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			slog.Warn("Timeout")
 			metrics.RecordJobOutcome("timeout")

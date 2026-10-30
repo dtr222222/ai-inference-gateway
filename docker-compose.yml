@@ -1,0 +1,48 @@
+services:
+  go-service:
+    build: .
+    image: ai-gateway-go:v2
+    ports:
+      - "8080:8080"
+    environment:
+      - TIMEOUT_SECONDS=10
+      - CONCURRENCY=2
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    ports:
+      - "9090:9090"
+    depends_on:
+      go-service:
+        condition: service_started
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      prometheus:
+        condition: service_started
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  python-service:
+    build: ./python-service
+    image: ai-gateway-python:v1
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+
+volumes:
+  # 告诉 Docker Compose：“我要创建一个名叫 mysql_data 的持久化数据卷。”
+  # mysql_data 是一个 Docker 命名卷，本质是 Docker 在 WSL2 里托管的一个目录，里面装着 MySQL 的数据文件。
+  # 它不是文件，不能被 Windows 文件资源管理器直接打开。想访问数据，用数据库工具连上去就行。
+  prometheus_data:
+  grafana_data:
+  hf_cache:
