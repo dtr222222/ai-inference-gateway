@@ -51,7 +51,7 @@ func ChatHandler(c *gin.Context) {
 	}
 
 	// 设置超时
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
 	defer cancel()
 
 	// 收结果

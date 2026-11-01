@@ -14,14 +14,15 @@ spec:
     spec:
       containers:
         - name: go-container
-          image: ghcr.io/dtr222222/ai-inference-gateway/go-gateway:latest
+          image: ai-gateway-go:dev
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           env:
             - name: VOLUME
-              value: "10"
+              value: "50"
             - name: RATE
-              value: "1"
+              value: "20"
             - name: WINDOW
               value: "120"
 

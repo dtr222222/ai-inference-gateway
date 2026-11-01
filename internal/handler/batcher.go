@@ -96,7 +96,7 @@ func processBatch(batch []Job) {
 
 	buffer := bytes.NewBuffer(buf)
 	// 10s is the per-batch RPC budget; it must stay below the caller's HTTP timeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 110*time.Second)
 	//  不要在循环里使用，而是单独开一个函数
 	defer cancel()
 
@@ -174,7 +174,7 @@ Loop:
 		case job := <-JobQueue:
 
 			batch = append(batch, job)
-			if len(batch) >= 50 {
+			if len(batch) >= 5 {
 				break Loop
 			}
 		default:

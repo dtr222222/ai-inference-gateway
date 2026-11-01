@@ -39,6 +39,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate Image Tag
+        id: tag_generator
+        run: echo "HASH_TAG=sha-${GITHUB_SHA::7}" >> $GITHUB_ENV
+
       # 1. 构建并推送 Go 网关镜像
       - name: Build and push Go Gateway
         uses: docker/build-push-action@v5
@@ -47,7 +51,7 @@ jobs:
           file: ./Dockerfile
           push: true
           # 镜像地址：ghcr.io/你的GitHub用户名/ai-inference-gateway/go-gateway:latest
-          tags: ghcr.io/${{ github.repository }}/go-gateway:latest
+          tags: ghcr.io/${{ github.repository }}/go-gateway:${{ env.HASH_TAG }}
 
       # 2. 构建并推送 Python 模型镜像
       - name: Build and push Python Service
@@ -57,4 +61,4 @@ jobs:
           file: ./python-service/Dockerfile
           push: true
           # 镜像地址：ghcr.io/你的GitHub用户名/ai-inference-gateway/python-service:latest
-          tags: ghcr.io/${{ github.repository }}/python-service:latest
+          tags: ghcr.io/${{ github.repository }}/python-service:${{ env.HASH_TAG }}
