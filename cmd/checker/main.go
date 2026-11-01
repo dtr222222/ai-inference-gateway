@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 )
 
 var isShuttingDown atomic.Bool
@@ -30,6 +32,17 @@ func main() {
 	slog.SetDefault(logger)
 	slog.Info("slog configured successfully")
 
+	// 导入环境变量
+	rawLimit := os.Getenv("LIMIT")
+	rawWindow := os.Getenv("WINDOW")
+
+	limit, errLimit := strconv.Atoi(rawLimit)
+	window, errWindow := strconv.Atoi(rawWindow)
+	if errLimit != nil || errWindow != nil {
+		slog.Error("getting environmental variables failed", "errLimit", errLimit, "errWindow", errWindow)
+		limit, window = 60, 60
+	}
+
 	// 初始化 metrics
 	// Init metrics before any business logic so all code paths can record them.
 	metrics.Init()
@@ -37,6 +50,12 @@ func main() {
 	// Root context canceled on SIGINT, used to trigger graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// 初始化 Redis 客户端
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "redis-service:6379",
+		PoolSize: 20,
+	})
 
 	// 设置成发布模式，减少调试信息输出
 	gin.SetMode(gin.ReleaseMode)
@@ -48,6 +67,7 @@ func main() {
 	router.Use(middleware.ShutdownMiddleware(&isShuttingDown))
 	router.Use(middleware.SlogMiddleware())
 	router.Use(middleware.MetricsMiddleware())
+	router.Use(middleware.RateLimitMiddleWare(rdb, limit, window))
 	router.Use(middleware.RecoveryMiddleware())
 	// Background batcher aggregates async results before flushing to storage.
 	var wg sync.WaitGroup
@@ -113,4 +133,5 @@ func main() {
 	slog.Info("server exiting")
 	// 关闭空闲链接
 	h.Client.CloseIdleConnections()
+	rdb.Close()
 }

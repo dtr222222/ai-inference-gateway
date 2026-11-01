@@ -14,10 +14,18 @@ spec:
     spec:
       containers:
         - name: go-container
-          image: ai-gateway-go:v2
+          image: ai-gateway-go:v2.2.1
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
+          env:
+            - name: LIMIT
+              value: "60"
+            - name: WINDOW
+              value: "60"
+
+          # 可优化的点：将 cpu 指标换成 prometheus 里监控的 batchQueueSize
+          # 因为 go 服务端本质上只是一个网关，对 cpu 要求不高，cpu 指标不太适用
           resources:
             limits:
               cpu: 500m
