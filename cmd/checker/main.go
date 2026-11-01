@@ -33,14 +33,16 @@ func main() {
 	slog.Info("slog configured successfully")
 
 	// 导入环境变量
-	rawLimit := os.Getenv("LIMIT")
+	rawVolume := os.Getenv("VOLUME")
+	rawRate := os.Getenv("RATE")
 	rawWindow := os.Getenv("WINDOW")
 
-	limit, errLimit := strconv.Atoi(rawLimit)
+	volume, errVolume := strconv.Atoi(rawVolume)
+	rate, errRate := strconv.Atoi(rawRate)
 	window, errWindow := strconv.Atoi(rawWindow)
-	if errLimit != nil || errWindow != nil {
-		slog.Error("getting environmental variables failed", "errLimit", errLimit, "errWindow", errWindow)
-		limit, window = 60, 60
+	if errVolume != nil || errRate != nil || errWindow != nil {
+		slog.Error("getting environmental variables failed", "errVolume", errVolume, "errRate", errRate, "errWindow", errWindow)
+		volume, rate, window = 10, 1, 120
 	}
 
 	// 初始化 metrics
@@ -67,7 +69,7 @@ func main() {
 	router.Use(middleware.ShutdownMiddleware(&isShuttingDown))
 	router.Use(middleware.SlogMiddleware())
 	router.Use(middleware.MetricsMiddleware())
-	router.Use(middleware.RateLimitMiddleWare(rdb, limit, window))
+	router.Use(middleware.RateLimitBucketMiddleWare(rdb, volume, rate, window))
 	router.Use(middleware.RecoveryMiddleware())
 	// Background batcher aggregates async results before flushing to storage.
 	var wg sync.WaitGroup
