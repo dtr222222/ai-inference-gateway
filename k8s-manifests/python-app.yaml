@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: python-container
-          image: ai-gateway-python:v1
+          image: ghcr.io/dtr222222/ai-inference-gateway/python-gateway:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

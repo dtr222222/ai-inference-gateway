@@ -14,8 +14,7 @@ spec:
     spec:
       containers:
         - name: go-container
-          image: ai-gateway-go:v2.2.2
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/dtr222222/ai-inference-gateway/go-gateway:latest
           ports:
             - containerPort: 8080
           env:
