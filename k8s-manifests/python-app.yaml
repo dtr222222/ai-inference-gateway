@@ -50,7 +50,7 @@ kind: Service
 metadata:
   name: python-service
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app: python-app
   ports:

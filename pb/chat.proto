@@ -1,0 +1,22 @@
+syntax = "proto3";
+package chat;
+option go_package = "ai-inference-gateway/pb;chat";
+
+message ChatRequest {
+  string request_id = 1;
+  string prompt = 2;
+  int32 max_new_tokens = 3;
+  // 控制模型的概率分布，调整“脑洞”的大小
+  float temperature = 4;
+}
+
+message ChatResponse {
+  string request_id = 1;
+  string token = 2;
+  bool is_finish = 3;
+  string error_msg = 4;
+}
+
+service ChatService {
+  rpc StreamChat (ChatRequest) returns (stream ChatResponse);
+}
