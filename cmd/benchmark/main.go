@@ -14,8 +14,13 @@ import (
 
 // TODO: 队列监测扩容
 
+const (
+	concurrency = 10
+	duration    = 2 * time.Minute
+)
+
 var client = &http.Client{
-	Timeout: 60 * time.Second,
+	Timeout: 120 * time.Second,
 	Transport: &http.Transport{
 		DisableKeepAlives:   true,
 		MaxIdleConns:        100,
@@ -53,7 +58,8 @@ func worker(jsonData []byte, first *[]int64, end *[]int64, mu *sync.Mutex) {
 		mu.Unlock()
 	}
 
-	for range 5 {
+	deadline := time.Now().Add(duration)
+	for time.Now().Before(deadline) {
 		post()
 	}
 }
@@ -79,7 +85,7 @@ func main() {
 		avgF, avgE int64
 	)
 
-	for range 10 {
+	for range concurrency {
 		wg.Go(func() {
 			worker(jsonData, &first, &end, &mu)
 		})

@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: python-deployment
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: python-app
@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: python-container
-          image: ai-gateway-python:v1.0.5
+          image: ai-gateway-python:v1.0.6
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 50051
@@ -23,12 +23,12 @@ spec:
               value: https://hf-mirror.com
             # 限制多线程，与 pytorch 底层相关
             - name: OMP_NUM_THREADS
-              value: "1"
+              value: "2"
           resources:
             limits:
-              cpu: 1000m
+              cpu: 1500m
             requests:
-              cpu: 200m
+              cpu: 1000m
           startupProbe:
             # 把 httpGet 全换成 Socket
             # 为什么不再用 httpGet, 因为 httpGet会发普通 HTTP 文本，

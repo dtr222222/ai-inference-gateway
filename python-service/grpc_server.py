@@ -6,6 +6,8 @@ from concurrent import futures
 from pb import chat_pb2, chat_pb2_grpc
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextIteratorStreamer, StoppingCriteria
 from threading import Thread
+import socket
+
 path = "qwen-model"
 tokenizer = AutoTokenizer.from_pretrained(path)
 model = AutoModelForCausalLM.from_pretrained(path)
@@ -21,6 +23,8 @@ class CancelCriteria(StoppingCriteria):
 
 class ChatService(chat_pb2_grpc.ChatServiceServicer):
     def StreamChat(self, request, context):
+        # 测试打印信息
+        print(socket.gethostname(), request.request_id)
         # 构建标准的对话信息
         messages = [
             {"role": "user", "content": request.prompt}

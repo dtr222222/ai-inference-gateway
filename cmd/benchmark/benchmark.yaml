@@ -3,6 +3,7 @@ kind: Job
 metadata:
   name: benchmark-job
 spec:
+  ttlSecondsAfterFinished: 300
   template:
     spec:
       containers:
@@ -10,4 +11,3 @@ spec:
           image: benchmark-tool:v1.0.4
           imagePullPolicy: IfNotPresent
       restartPolicy: Never
-  backoffLimit: 0
