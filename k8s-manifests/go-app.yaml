@@ -14,25 +14,27 @@ spec:
     spec:
       containers:
         - name: go-container
-          image: ai-gateway-go:dev
+          image: ai-gateway-go:v1.0.5
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           env:
             - name: VOLUME
-              value: "50"
+              value: "1000"
             - name: RATE
-              value: "20"
+              value: "1000"
             - name: WINDOW
               value: "120"
+            - name: REDIS_ADDR
+              value: "redis-service:6379"
 
           # 可优化的点：将 cpu 指标换成 prometheus 里监控的 batchQueueSize
           # 因为 go 服务端本质上只是一个网关，对 cpu 要求不高，cpu 指标不太适用
           resources:
             limits:
-              cpu: 500m
+              cpu: 1000m
             requests:
-              cpu: 100m
+              cpu: 200m
           livenessProbe:
             httpGet:
               path: /healthz

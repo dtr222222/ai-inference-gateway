@@ -4,6 +4,7 @@ import (
 	h "ai-inference-gateway/internal/handler"
 	"ai-inference-gateway/internal/metrics"
 	"ai-inference-gateway/internal/middleware"
+	chat "ai-inference-gateway/pb"
 	"context"
 	"errors"
 	"log/slog"
@@ -11,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -19,6 +19,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
+	_ "google.golang.org/grpc/balancer/roundrobin"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 var isShuttingDown atomic.Bool
@@ -26,7 +29,6 @@ var isShuttingDown atomic.Bool
 func main() {
 	// 初始化 slog
 	// 同时要注意应该先初始化 slog, 不然后面的 slog 的格式会有差异
-	// Initialize slog first so every subsequent log uses the same JSON handler.
 	jsonHandler := slog.NewJSONHandler(os.Stdout, nil)
 	logger := slog.New(jsonHandler)
 	slog.SetDefault(logger)
@@ -36,28 +38,41 @@ func main() {
 	rawVolume := os.Getenv("VOLUME")
 	rawRate := os.Getenv("RATE")
 	rawWindow := os.Getenv("WINDOW")
+	redisAddr := os.Getenv("REDIS_ADDR")
 
 	volume, errVolume := strconv.Atoi(rawVolume)
 	rate, errRate := strconv.Atoi(rawRate)
 	window, errWindow := strconv.Atoi(rawWindow)
-	if errVolume != nil || errRate != nil || errWindow != nil {
-		slog.Error("getting environmental variables failed", "errVolume", errVolume, "errRate", errRate, "errWindow", errWindow)
-		volume, rate, window = 10, 1, 120
+	if errVolume != nil || errRate != nil || errWindow != nil || redisAddr == "" {
+		slog.Error("getting environmental variables failed", "errVolume", errVolume,
+			"errRate", errRate, "errWindow", errWindow, "errRedisAddr", "fail to load redis address")
+		volume, rate, window, redisAddr = 100, 20, 120, "localhost:6379"
 	}
 
 	// 初始化 metrics
-	// Init metrics before any business logic so all code paths can record them.
 	metrics.Init()
 
-	// Root context canceled on SIGINT, used to trigger graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// 初始化 Redis 客户端
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     "redis-service:6379",
+		Addr:     redisAddr,
 		PoolSize: 20,
 	})
+
+	// 建立与 grpc的连接，最后的参数表明是明文通信
+	conn, err := grpc.NewClient("dns:///python-service:50051",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`))
+	if err != nil {
+		slog.Error("failed to connect with grpc", "error", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	// 建立与 python 端通信的客户端
+	client := chat.NewChatServiceClient(conn)
 
 	// 设置成发布模式，减少调试信息输出
 	gin.SetMode(gin.ReleaseMode)
@@ -71,16 +86,10 @@ func main() {
 	router.Use(middleware.MetricsMiddleware())
 	router.Use(middleware.RateLimitBucketMiddleWare(rdb, volume, rate, window))
 	router.Use(middleware.RecoveryMiddleware())
-	// Background batcher aggregates async results before flushing to storage.
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		defer func() { recover() }()
-		h.StartBatcher(ctx)
-	})
 
 	{
 		api := router.Group("/api")
-		api.POST("/chat", h.ChatHandler)
+		api.POST("/chat", h.ChatHandler(client))
 	}
 
 	// 注册 metrics 路由，prometheus 会定时来抓取数据
@@ -119,21 +128,7 @@ func main() {
 	if err := srv.Shutdown(shutdownHttpCtx); err != nil {
 		slog.Info("server forced to shutdown", "error", err)
 	}
-	shutdownBatchCtx, cancelBatch := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancelBatch()
-	sign := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(sign)
-	}()
-
-	select {
-	case <-shutdownBatchCtx.Done():
-	case <-sign:
-	}
 
 	slog.Info("server exiting")
-	// 关闭空闲链接
-	h.Client.CloseIdleConnections()
 	rdb.Close()
 }

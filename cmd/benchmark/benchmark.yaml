@@ -1,0 +1,13 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: benchmark-job
+spec:
+  template:
+    spec:
+      containers:
+        - name: benchmark
+          image: benchmark-tool:v1.0.4
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Never
+  backoffLimit: 0

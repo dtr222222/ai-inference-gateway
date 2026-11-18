@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: redis-container
-          image: redis:7-alpine
+          image: docker.m.daocloud.io/library/redis:7-alpine
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 6379

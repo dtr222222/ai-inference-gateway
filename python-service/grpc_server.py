@@ -42,6 +42,7 @@ class ChatService(chat_pb2_grpc.ChatServiceServicer):
             max_new_tokens=request.max_new_tokens if request.max_new_tokens > 0 else 20,
             stopping_criteria=[criteria]
         )
+        # 这个 thread 会再开一个线程跑模型
         thread = Thread(target=model.generate, kwargs=generation_kwargs)
         thread.start()
         while True:
@@ -67,7 +68,8 @@ class ChatService(chat_pb2_grpc.ChatServiceServicer):
 
 def serve():
     # grpc.server 用来创建 gRPC服务器实例， 线性池：futures.ThreadPoolExecutor(max_workers=10)，总共准备了10个线程
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    # 比如 go 端发来十个并发请求，grpc 会分配这 10 个线程去分别执行stream chat函数
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=2))
     # 这个函数的作用是绑定，以后收到的请求都交给类里的 StreamChat方法处理
     chat_pb2_grpc.add_ChatServiceServicer_to_server(ChatService(), server)
     # 绑定端口，这里的 insecure表示不加密（明文传输），但之后必须得改
